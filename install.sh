@@ -47,11 +47,12 @@ print_banner() {
 SPINNER_PID=""
 start_spinner() {
   local msg="$1"
+  [ -t 1 ] || { echo -e "    ${DIM}${msg}…${RESET}"; return; }
   local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
   (
     local i=0
     while true; do
-      echo -ne "\r    ${CYAN}${frames[$i]}${RESET}  ${DIM}${msg}${RESET}   "
+      printf "\r\033[2K    ${CYAN}${frames[$i]}${RESET}  ${DIM}${msg}${RESET}"
       i=$(( (i+1) % ${#frames[@]} ))
       sleep 0.1
     done
@@ -61,7 +62,8 @@ start_spinner() {
 stop_spinner() {
   if [ -n "$SPINNER_PID" ]; then
     kill "$SPINNER_PID" 2>/dev/null; wait "$SPINNER_PID" 2>/dev/null || true
-    SPINNER_PID=""; echo -ne "\r\033[2K"
+    SPINNER_PID=""
+    printf "\r\033[2K"
   fi
 }
 trap 'stop_spinner' EXIT
