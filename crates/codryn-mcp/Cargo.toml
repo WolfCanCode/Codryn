@@ -1,0 +1,21 @@
+[package]
+name = "codryn-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+codryn-foundation.workspace = true
+codryn-store.workspace = true
+codryn-services.workspace = true
+codryn-discover.workspace = true
+codryn-pipeline.workspace = true
+codryn-cypher.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+chrono.workspace = true

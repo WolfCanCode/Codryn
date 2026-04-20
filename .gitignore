@@ -1,0 +1,32 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Angular / Node
+ui/node_modules/
+
+ui/.angular/
+ui/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.kiro/
+*.iml
+
+.superpowers/
+
+
+
+# Env
+.env
+.env.local
+graph-ui/dist/

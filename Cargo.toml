@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/codryn-foundation",
+    "crates/codryn-store",
+    "crates/codryn-discover",
+    "crates/codryn-pipeline",
+    "crates/codryn-graph-buffer",
+    "crates/codryn-cypher",
+    "crates/codryn-services",
+    "crates/codryn-mcp",
+    "crates/codryn-cli",
+    "crates/codryn-ui",
+    "crates/codryn-watcher",
+    "crates/codryn-bin",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rmcp = { version = "0.3", features = ["server", "transport-io"] }
+schemars = "1"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tree-sitter = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-kotlin-ng = "1"
+tree-sitter-language = "0.1"
+ignore = "0.4"
+notify = { version = "7", features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.5"
+aho-corasick = "1"
+rayon = "1"
+regex = "1"
+lz4_flex = "0.11"
+git2 = "0.19"
+rust-embed = "8"
+sha2 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+
+codryn-foundation = { path = "crates/codryn-foundation" }
+codryn-store = { path = "crates/codryn-store" }
+codryn-discover = { path = "crates/codryn-discover" }
+codryn-pipeline = { path = "crates/codryn-pipeline" }
+codryn-graph-buffer = { path = "crates/codryn-graph-buffer" }
+codryn-cypher = { path = "crates/codryn-cypher" }
+codryn-services = { path = "crates/codryn-services" }
+codryn-mcp = { path = "crates/codryn-mcp" }
+codryn-cli = { path = "crates/codryn-cli" }
+codryn-ui = { path = "crates/codryn-ui" }
+codryn-watcher = { path = "crates/codryn-watcher" }
