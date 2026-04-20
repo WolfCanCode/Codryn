@@ -10,3 +10,6 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+ureq.workspace = true
+flate2.workspace = true
+tar.workspace = true
