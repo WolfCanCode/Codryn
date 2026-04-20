@@ -356,7 +356,16 @@ function ProjectLinkOverlay({
       })
 
     const sorted = [...links].sort((a, b) => a.key.localeCompare(b.key))
-    const pairGeoms: { L: (typeof links)[0]; xa: number; ya: number; xb: number; yb: number }[] = []
+    const pairGeoms: {
+      L: (typeof links)[0]
+      xa: number
+      ya: number
+      xb: number
+      yb: number
+      preferBetween: boolean
+      yMidMin: number
+      yMidMax: number
+    }[] = []
     for (const L of sorted) {
       const elA = cardRefs.current[L.a]
       const elB = cardRefs.current[L.b]
@@ -364,10 +373,42 @@ function ProjectLinkOverlay({
       const ra = elA.getBoundingClientRect()
       const rb = elB.getBoundingClientRect()
       const xa = ra.left + ra.width / 2 - cr.left + sl
-      const ya = ra.bottom - cr.top + st
       const xb = rb.left + rb.width / 2 - cr.left + sl
-      const yb = rb.bottom - cr.top + st
-      pairGeoms.push({ L, xa, ya, xb, yb })
+
+      const aTop = ra.top - cr.top + st
+      const aBot = ra.bottom - cr.top + st
+      const bTop = rb.top - cr.top + st
+      const bBot = rb.bottom - cr.top + st
+
+      // Prefer "between-cards" routing when cards are vertically separated.
+      // This makes arrows land on the *top* of the lower card (or bottom of the upper card),
+      // which is visually easier to follow than always routing below everything.
+      const V_GAP = 10
+      let ya = aBot
+      let yb = bBot
+      let preferBetween = false
+      let yMidMin = 0
+      let yMidMax = 0
+      if (bTop >= aBot + V_GAP) {
+        // B clearly below A: bottom(A) -> top(B)
+        ya = aBot
+        yb = bTop
+        preferBetween = true
+        yMidMin = ya + 12
+        yMidMax = yb - 12
+      } else if (aTop >= bBot + V_GAP) {
+        // A clearly below B: top(A) -> bottom(B)
+        ya = aTop
+        yb = bBot
+        preferBetween = true
+        yMidMin = yb + 12
+        yMidMax = ya - 12
+      }
+      if (preferBetween && yMidMax <= yMidMin) {
+        preferBetween = false
+      }
+
+      pairGeoms.push({ L, xa, ya, xb, yb, preferBetween, yMidMin, yMidMax })
       bw = Math.max(bw, xa + 8, xb + 8)
     }
 
@@ -381,23 +422,65 @@ function ProjectLinkOverlay({
       let prevYMid = -Infinity
       for (const p of pairs) {
         const exclude = new Set([p.L.a, p.L.b])
-        let yMid = Math.max(Math.max(p.ya, p.yb) + LINK_COMPACT_PAD, prevYMid + LINK_LANE_SPACING)
+        let yMid = 0
+        let pts: [number, number][] = []
+        let labelX = (p.xa + p.xb) / 2
+
+        const tryBetween = () => {
+          if (!p.preferBetween) return false
+
+          const base = Math.max(p.yMidMin, Math.min(p.yMidMax, (p.ya + p.yb) / 2))
+          const minLane = prevYMid + LINK_LANE_SPACING
+          const seeded = Math.max(p.yMidMin, Math.min(p.yMidMax, Math.max(base, minLane)))
+
+          const deltas: number[] = [0]
+          for (let i = 1; i <= 26; i++) {
+            deltas.push(i * 8, -i * 8)
+          }
+
+          for (const d of deltas) {
+            const cand = seeded + d
+            if (cand < p.yMidMin || cand > p.yMidMax) continue
+            if (horizontalSegmentHitsObstacle(cand, p.xa, p.xb, obstacles, exclude)) continue
+            const candPts = buildSimpleU(p, cand)
+            if (!orthogonalPolylineHitsObstacles(candPts, obstacles, exclude)) {
+              yMid = cand
+              pts = candPts
+              return true
+            }
+          }
+          return false
+        }
+
+        if (tryBetween()) {
+          prevYMid = yMid
+          segs.push({
+            key: p.L.key,
+            a: p.L.a,
+            b: p.L.b,
+            d: pathDFromPoints(pts),
+            labelX,
+            labelY: yMid,
+          })
+          bh = Math.max(bh, yMid + 28)
+          continue
+        }
+
+        // Fallback: keep the original "lane under cards" router.
+        yMid = Math.max(Math.max(p.ya, p.yb) + LINK_COMPACT_PAD, prevYMid + LINK_LANE_SPACING)
         let g = 0
         while (g < 48 && horizontalSegmentHitsObstacle(yMid, p.xa, p.xb, obstacles, exclude)) {
           g++
           yMid += 8
         }
         let raised = 0
-        while (
-          raised < 40
-          && orthogonalPolylineHitsObstacles(buildSimpleU(p, yMid), obstacles, exclude)
-        ) {
+        while (raised < 40 && orthogonalPolylineHitsObstacles(buildSimpleU(p, yMid), obstacles, exclude)) {
           raised++
           yMid += 8
         }
 
-        let pts: [number, number][] = buildSimpleU(p, yMid)
-        let labelX = (p.xa + p.xb) / 2
+        pts = buildSimpleU(p, yMid)
+        labelX = (p.xa + p.xb) / 2
         if (!orthogonalPolylineHitsObstacles(pts, obstacles, exclude)) {
           prevYMid = yMid
           segs.push({
