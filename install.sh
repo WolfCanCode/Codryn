@@ -291,7 +291,9 @@ build_and_install() {
 
   install_binary "${build_dir}/target/release/codryn"
   cd /
-  [ -n "$cleanup" ] && rm -rf "$cleanup"
+  if [ -n "$cleanup" ]; then
+    rm -rf "$cleanup"
+  fi
 }
 
 # ── Main ──────────────────────────────────────────────────

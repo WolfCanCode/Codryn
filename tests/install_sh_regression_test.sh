@@ -83,7 +83,31 @@ EOF
   fi
 }
 
+test_empty_cleanup_guard_does_not_fail_under_set_e() {
+  if ! output=$(
+    sh -eu <<'EOF'
+f() {
+  cleanup=""
+  if [ -n "$cleanup" ]; then
+    rm -rf "$cleanup"
+  fi
+}
+f
+printf 'continued\n'
+EOF
+  ); then
+    printf 'empty cleanup guard exited under set -e\n' >&2
+    exit 1
+  fi
+
+  if [ "$output" != "continued" ]; then
+    printf 'expected cleanup guard to continue, got %s\n' "$output" >&2
+    exit 1
+  fi
+}
+
 test_noninteractive_warning_only_claims_rc_update_when_written
 test_finalization_prefers_new_install_dir_over_old_binary
+test_empty_cleanup_guard_does_not_fail_under_set_e
 
 printf 'install.sh regression tests passed\n'
