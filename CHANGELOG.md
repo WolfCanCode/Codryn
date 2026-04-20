@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-20
+
+- Initial release
+
+
 ## [1.0.0] - 2026-04-20
 
 ### Features
@@ -35,5 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Apply `cargo fmt` formatting (`e5677b3`)
 
-[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/WolfCanCode/Codryn/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/WolfCanCode/Codryn/releases/tag/v1.0.0
