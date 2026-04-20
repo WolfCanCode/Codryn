@@ -145,7 +145,10 @@ async fn main() -> Result<()> {
         let binary = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("codryn"));
         match codryn_cli::install::install(&binary, false) {
             Ok(configured) if !configured.is_empty() => {
-                println!("  \x1b[32m✓\x1b[0m Configured MCP for: {}", configured.join(", "));
+                println!(
+                    "  \x1b[32m✓\x1b[0m Configured MCP for: {}",
+                    configured.join(", ")
+                );
             }
             Ok(_) => {
                 println!("  \x1b[33m⚠\x1b[0m  No agents detected — run \x1b[2mcodryn install\x1b[0m after installing an agent.");

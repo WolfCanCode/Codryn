@@ -143,9 +143,7 @@ fn check_claude_code_agent(home: &str) -> AgentStatus {
     let legacy_config = claude_dir.join("mcp_servers.json");
     let instr_path = claude_dir.join("CLAUDE.md");
 
-    let installed = app_exists("Claude")
-        || which("claude")
-        || claude_dir.exists();
+    let installed = app_exists("Claude") || which("claude") || claude_dir.exists();
 
     // Check modern ~/.claude.json first, then legacy mcp_servers.json
     let configured = has_codryn_entry(&claude_json) || has_codryn_entry(&legacy_config);

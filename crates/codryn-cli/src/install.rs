@@ -424,7 +424,12 @@ fn install_claude_code_mcp(binary_path: &str, claude_dir: &Path, dry_run: bool) 
     if dry_run {
         // In dry-run, check if the `claude` CLI is available
         if which("claude") {
-            tracing::info!(dry_run, "install: would run: claude mcp add --scope user {} {}", MCP_SERVER_KEY, binary_path);
+            tracing::info!(
+                dry_run,
+                "install: would run: claude mcp add --scope user {} {}",
+                MCP_SERVER_KEY,
+                binary_path
+            );
             return Ok(true);
         }
         // Fall back to mcp_servers.json check
@@ -440,7 +445,10 @@ fn install_claude_code_mcp(binary_path: &str, claude_dir: &Path, dry_run: bool) 
         .status();
 
     if status.map(|s| s.success()).unwrap_or(false) {
-        tracing::info!(dry_run, "install: configured Claude Code via `claude mcp add`");
+        tracing::info!(
+            dry_run,
+            "install: configured Claude Code via `claude mcp add`"
+        );
         return Ok(true);
     }
 
