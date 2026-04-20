@@ -334,12 +334,30 @@ stop_spinner
 
 echo ""
 if command -v codryn &>/dev/null; then
-  ok "Binary verified"
+  VERSION=$(codryn --version 2>/dev/null | awk '{print $NF}')
   echo ""
-  codryn
+  echo -e "  ${GREEN}${BOLD}✓ codryn ${VERSION} installed successfully!${RESET}"
+  echo ""
+  step "Configuring coding agents"
+  codryn install 2>/dev/null && ok "Agent configs updated" || warn "codryn install failed — run manually: codryn install"
+  echo ""
+  echo -e "  ${BOLD}Available commands:${RESET}"
+  echo -e "  ${CYAN}  codryn install${RESET}     Auto-configure MCP for all detected coding agents"
+  echo -e "  ${CYAN}  codryn status${RESET}      Show which agents are configured"
+  echo -e "  ${CYAN}  codryn update${RESET}      Update codryn to the latest version"
+  echo -e "  ${CYAN}  codryn uninstall${RESET}   Remove MCP config and binary"
+  echo -e "  ${CYAN}  codryn --ui${RESET}        Open web dashboard at http://localhost:9749"
+  echo ""
+  echo -e "  ${BOLD}Next steps:${RESET}"
+  echo -e "  ${CYAN}  1.${RESET} Open your project in your coding agent"
+  echo -e "  ${CYAN}  2.${RESET} Tell the agent: ${DIM}\"Index this project\"${RESET}"
+  echo -e "  ${CYAN}  3.${RESET} Ask anything about your codebase!"
+  echo ""
+  echo -e "  ${DIM}Uninstall: codryn uninstall${RESET}"
+  echo ""
 else
   warn "codryn installed to ${INSTALL_DIR} but not in PATH."
   echo -e "  Add: ${DIM}export PATH=\"${INSTALL_DIR}:\$PATH\"${RESET}"
-  echo -e "  Then run: ${DIM}codryn${RESET}"
+  echo -e "  Then run: ${DIM}codryn install${RESET}"
   echo ""
 fi
