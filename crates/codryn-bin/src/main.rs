@@ -135,6 +135,42 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // If running interactively in a terminal with no subcommand, show welcome + run install
+    use std::io::IsTerminal;
+    if args.len() == 1 && std::io::stdin().is_terminal() {
+        println!();
+        println!("  \x1b[1;32m✓ codryn {VERSION} installed successfully!\x1b[0m");
+        println!();
+        println!("  \x1b[1mConfiguring coding agents…\x1b[0m");
+        let binary = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("codryn"));
+        match codryn_cli::install::install(&binary, false) {
+            Ok(configured) if !configured.is_empty() => {
+                println!("  \x1b[32m✓\x1b[0m Configured MCP for: {}", configured.join(", "));
+            }
+            Ok(_) => {
+                println!("  \x1b[33m⚠\x1b[0m  No agents detected — run \x1b[2mcodryn install\x1b[0m after installing an agent.");
+            }
+            Err(e) => {
+                eprintln!("  \x1b[33m⚠\x1b[0m  codryn install failed: {e}");
+            }
+        }
+        println!();
+        println!("  \x1b[1mAvailable commands:\x1b[0m");
+        println!("  \x1b[36m  codryn install\x1b[0m           Auto-configure MCP for all detected coding agents");
+        println!("  \x1b[36m  codryn status\x1b[0m            Show which agents are configured");
+        println!("  \x1b[36m  codryn update\x1b[0m            Update codryn to the latest version");
+        println!("  \x1b[36m  codryn uninstall\x1b[0m         Remove MCP config and binary");
+        println!("  \x1b[36m  codryn --ui\x1b[0m              Open web dashboard at http://localhost:9749");
+        println!("  \x1b[36m  codryn --help\x1b[0m            Show full usage");
+        println!();
+        println!("  \x1b[1mNext steps:\x1b[0m");
+        println!("  \x1b[36m  1.\x1b[0m Open your project in your coding agent");
+        println!("  \x1b[36m  2.\x1b[0m Tell the agent: \x1b[2m\"Index this project\"\x1b[0m");
+        println!("  \x1b[36m  3.\x1b[0m Ask anything about your codebase!");
+        println!();
+        return Ok(());
+    }
+
     // Parse --ui and --port flags
     let ui_enabled = args
         .iter()

@@ -334,22 +334,12 @@ stop_spinner
 
 echo ""
 if command -v codryn &>/dev/null; then
-  VERSION=$(codryn --version 2>/dev/null | awk '{print $NF}')
-  ok "codryn is ready"
+  ok "Binary verified"
   echo ""
-  echo -e "  ${GREEN}${BOLD}  ✓ codryn ${VERSION} installed successfully!${RESET}"
-  echo ""
-  step "Configuring coding agents"
-  codryn install 2>/dev/null && ok "Agent configs updated" || warn "codryn install failed — run manually: codryn install"
-  echo ""
-  echo -e "  ${BOLD}  Next steps:${RESET}"
-  echo -e "  ${CYAN}  1.${RESET} Index your project:            ${DIM}codryn${RESET}  → tell agent: ${DIM}\"Index this project\"${RESET}"
-  echo -e "  ${CYAN}  2.${RESET} Open the dashboard:            ${DIM}codryn --ui${RESET}  → http://localhost:9749"
-  echo ""
-  echo -e "  ${DIM}  Uninstall:  codryn uninstall${RESET}"
-  echo ""
+  codryn
 else
   warn "codryn installed to ${INSTALL_DIR} but not in PATH."
   echo -e "  Add: ${DIM}export PATH=\"${INSTALL_DIR}:\$PATH\"${RESET}"
+  echo -e "  Then run: ${DIM}codryn${RESET}"
   echo ""
 fi
