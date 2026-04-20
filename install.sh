@@ -2,7 +2,7 @@
 # codryn installer
 set -e
 
-GITHUB_REPO="${CODRYN_GITHUB_REPO:-wolfcancode/codryn}"
+GITHUB_REPO="${CODRYN_GITHUB_REPO:-WolfCanCode/Codryn}"
 REPO_SSH="git@github.com:${GITHUB_REPO}.git"
 REPO_HTTPS="https://github.com/${GITHUB_REPO}.git"
 INSTALL_DIR="/usr/local/bin"

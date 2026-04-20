@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/logo.png" alt="codryn logo" width="88" />
+  <img src="assets/logo-2.png" alt="codryn logo" width="180" />
 </p>
-
-<h1 align="center">codryn</h1>
 
 <p align="center">
   Open-source Rust knowledge graph for AI coding agents.
@@ -17,6 +15,14 @@
 > Based on the paper: [Codebase-memory-mcp: A Persistent Knowledge Graph for AI Coding Agents](https://arxiv.org/abs/2603.27277)
 
 If this project is useful, give it a star. It helps more people discover the project and support continued open-source work.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WolfCanCode/Codryn/main/install.sh | sh
+```
+
+> Tries pre-built binaries first. Falls back to building from source if none are available for your platform. Requires Rust and Node.js 20+ for source builds.
 
 ## Why this project
 
