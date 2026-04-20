@@ -154,8 +154,7 @@ pub fn install(binary_path: &Path, dry_run: bool) -> Result<Vec<String>> {
     // Claude Code — detected by ~/.claude dir or app bundle
     let claude_dir = PathBuf::from(&home).join(".claude");
     if claude_dir.exists() || app_exists("Claude") {
-        let config = claude_dir.join("mcp_servers.json");
-        if install_editor_mcp(&bin, &config, dry_run)? {
+        if install_claude_code_mcp(&bin, &claude_dir, dry_run)? {
             if !dry_run {
                 let _ = upsert_instructions(
                     &claude_dir.join("CLAUDE.md"),
@@ -279,12 +278,17 @@ pub fn uninstall(dry_run: bool) -> Result<Vec<String>> {
     let home = platform::home_dir().unwrap_or_default();
     let mut removed = Vec::new();
 
+    // Claude Code — use `claude mcp remove` CLI first, fall back to mcp_servers.json
+    let claude_dir = PathBuf::from(&home).join(".claude");
+    if uninstall_claude_code_mcp(&claude_dir, dry_run)? {
+        let instr_path = claude_dir.join("CLAUDE.md");
+        if !dry_run {
+            let _ = remove_instructions(&instr_path);
+        }
+        removed.push("Claude Code".to_string());
+    }
+
     let configs: &[(&str, PathBuf, Option<PathBuf>)] = &[
-        (
-            "Claude Code",
-            PathBuf::from(&home).join(".claude/mcp_servers.json"),
-            Some(PathBuf::from(&home).join(".claude/CLAUDE.md")),
-        ),
         (
             "VS Code",
             PathBuf::from(&home).join(".vscode/mcp.json"),
@@ -413,6 +417,62 @@ fn install_codex_mcp(binary_path: &str, config_path: &Path, dry_run: bool) -> Re
 
     tracing::info!(path = %config_path.display(), dry_run, "install: configured Codex CLI MCP entry");
     Ok(true)
+}
+
+/// Install MCP for Claude Code using `claude mcp add --scope user`, with fallback to mcp_servers.json.
+fn install_claude_code_mcp(binary_path: &str, claude_dir: &Path, dry_run: bool) -> Result<bool> {
+    if dry_run {
+        // In dry-run, check if the `claude` CLI is available
+        if which("claude") {
+            tracing::info!(dry_run, "install: would run: claude mcp add --scope user {} {}", MCP_SERVER_KEY, binary_path);
+            return Ok(true);
+        }
+        // Fall back to mcp_servers.json check
+        let config = claude_dir.join("mcp_servers.json");
+        return install_editor_mcp(binary_path, &config, dry_run);
+    }
+
+    // Try `claude mcp add --scope user` first (modern Claude Code)
+    let status = std::process::Command::new("claude")
+        .args(["mcp", "add", "--scope", "user", MCP_SERVER_KEY, binary_path])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if status.map(|s| s.success()).unwrap_or(false) {
+        tracing::info!(dry_run, "install: configured Claude Code via `claude mcp add`");
+        return Ok(true);
+    }
+
+    // Fall back to writing mcp_servers.json for older Claude Code versions
+    let config = claude_dir.join("mcp_servers.json");
+    install_editor_mcp(binary_path, &config, dry_run)
+}
+
+/// Uninstall MCP from Claude Code using `claude mcp remove`, with fallback to mcp_servers.json.
+fn uninstall_claude_code_mcp(claude_dir: &Path, dry_run: bool) -> Result<bool> {
+    let mut removed = false;
+
+    if !dry_run {
+        // Try `claude mcp remove --scope user` (modern Claude Code)
+        let status = std::process::Command::new("claude")
+            .args(["mcp", "remove", "--scope", "user", MCP_SERVER_KEY])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if status.map(|s| s.success()).unwrap_or(false) {
+            removed = true;
+            tracing::info!("uninstall: removed Claude Code entry via `claude mcp remove`");
+        }
+    }
+
+    // Also remove from mcp_servers.json if it exists (cleanup legacy config)
+    let config = claude_dir.join("mcp_servers.json");
+    if remove_mcp_entry(&config, dry_run)? {
+        removed = true;
+    }
+
+    Ok(removed)
 }
 
 fn install_editor_mcp(binary_path: &str, config_path: &Path, dry_run: bool) -> Result<bool> {
