@@ -153,16 +153,16 @@ pub fn install(binary_path: &Path, dry_run: bool) -> Result<Vec<String>> {
 
     // Claude Code — detected by ~/.claude dir or app bundle
     let claude_dir = PathBuf::from(&home).join(".claude");
-    if claude_dir.exists() || app_exists("Claude") {
-        if install_claude_code_mcp(&bin, &claude_dir, dry_run)? {
-            if !dry_run {
-                let _ = upsert_instructions(
-                    &claude_dir.join("CLAUDE.md"),
-                    &agent_instructions("claude-code"),
-                );
-            }
-            configured.push("Claude Code".into());
+    if (claude_dir.exists() || app_exists("Claude"))
+        && install_claude_code_mcp(&bin, &claude_dir, dry_run)?
+    {
+        if !dry_run {
+            let _ = upsert_instructions(
+                &claude_dir.join("CLAUDE.md"),
+                &agent_instructions("claude-code"),
+            );
         }
+        configured.push("Claude Code".into());
     }
 
     // VS Code — detected by ~/.vscode dir, app bundle, or `code` CLI
