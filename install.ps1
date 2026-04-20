@@ -21,29 +21,41 @@ function Show-Banner {
     Write-Host ""
     Write-Host "  ╔═══════════════════════════════════════════════════╗" -ForegroundColor Blue
     Write-Host "  ║                                                   ║" -ForegroundColor Blue
-    Write-Host "  ║         " -ForegroundColor Blue -NoNewline
-    Write-Host ".-========================-." -ForegroundColor Cyan -NoNewline
-    Write-Host "          ║" -ForegroundColor Blue
-    Write-Host "  ║       " -ForegroundColor Blue -NoNewline
-    Write-Host ".-'    o----.  .----o     '-." -ForegroundColor Cyan -NoNewline
-    Write-Host "        ║" -ForegroundColor Blue
+    Write-Host "  ║                   " -ForegroundColor Blue -NoNewline
+    Write-Host "╔═══════════╗" -ForegroundColor Cyan -NoNewline
+    Write-Host "                   ║" -ForegroundColor Blue
+    Write-Host "  ║                   " -ForegroundColor Blue -NoNewline
+    Write-Host "║  " -ForegroundColor Cyan -NoNewline
+    Write-Host "▪" -ForegroundColor White -NoNewline
+    Write-Host "     " -ForegroundColor Cyan -NoNewline
+    Write-Host "▪" -ForegroundColor White -NoNewline
+    Write-Host "  ║" -ForegroundColor Cyan -NoNewline
+    Write-Host "                   ║" -ForegroundColor Blue
+    Write-Host "  ║                   " -ForegroundColor Blue -NoNewline
+    Write-Host "║           ║" -ForegroundColor Cyan -NoNewline
+    Write-Host "                   ║" -ForegroundColor Blue
     Write-Host "  ║      " -ForegroundColor Blue -NoNewline
-    Write-Host "/    .---.  \/  .---.       \" -ForegroundColor Cyan -NoNewline
-    Write-Host "       ║" -ForegroundColor Blue
-    Write-Host "  ║     " -ForegroundColor Blue -NoNewline
-    Write-Host "|    | o | " -ForegroundColor Cyan -NoNewline
-    Write-Host "c o d r y n" -ForegroundColor White -NoNewline
-    Write-Host " | o |      |" -ForegroundColor Cyan -NoNewline
+    Write-Host "─────────────╢           ╟─────────────" -ForegroundColor Cyan -NoNewline
     Write-Host "      ║" -ForegroundColor Blue
-    Write-Host "  ║      " -ForegroundColor Blue -NoNewline
-    Write-Host "\    '---'  /\  '---'     /" -ForegroundColor Cyan -NoNewline
-    Write-Host "       ║" -ForegroundColor Blue
-    Write-Host "  ║       " -ForegroundColor Blue -NoNewline
-    Write-Host "'-.      o-'  '-o      .-'" -ForegroundColor Cyan -NoNewline
-    Write-Host "        ║" -ForegroundColor Blue
-    Write-Host "  ║         " -ForegroundColor Blue -NoNewline
+    Write-Host "  ║                   " -ForegroundColor Blue -NoNewline
+    Write-Host "║           ║" -ForegroundColor Cyan -NoNewline
+    Write-Host "                   ║" -ForegroundColor Blue
+    Write-Host "  ║                   " -ForegroundColor Blue -NoNewline
+    Write-Host "╚═══╦═══╦═══╝" -ForegroundColor Cyan -NoNewline
+    Write-Host "                   ║" -ForegroundColor Blue
+    Write-Host "  ║                       " -ForegroundColor Blue -NoNewline
+    Write-Host "║   ║" -ForegroundColor Cyan -NoNewline
+    Write-Host "                       ║" -ForegroundColor Blue
+    Write-Host "  ║                       " -ForegroundColor Blue -NoNewline
+    Write-Host "╨   ╨" -ForegroundColor Cyan -NoNewline
+    Write-Host "                       ║" -ForegroundColor Blue
+    Write-Host "  ║                                                   ║" -ForegroundColor Blue
+    Write-Host "  ║                 " -ForegroundColor Blue -NoNewline
+    Write-Host "C  O  D  R  Y  N" -ForegroundColor White -NoNewline
+    Write-Host "                  ║" -ForegroundColor Blue
+    Write-Host "  ║                  " -ForegroundColor Blue -NoNewline
     Write-Host "agent warehouse" -ForegroundColor DarkGray -NoNewline
-    Write-Host "                    ║" -ForegroundColor Blue
+    Write-Host "                  ║" -ForegroundColor Blue
     Write-Host "  ║                                                   ║" -ForegroundColor Blue
     Write-Host "  ╚═══════════════════════════════════════════════════╝" -ForegroundColor Blue
     Write-Host ""

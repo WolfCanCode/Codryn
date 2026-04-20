@@ -8,13 +8,11 @@ use std::sync::LazyLock;
 
 use crate::registry::Registry;
 
-static APP_ROUTE_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:(.+)/)?route\.(ts|tsx|js|jsx|mjs)$").unwrap()
-});
+static APP_ROUTE_SUFFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(?:(.+)/)?route\.(ts|tsx|js|jsx|mjs)$").unwrap());
 
-static PAGES_API_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(.+\.(ts|tsx|js|jsx|mjs))$").unwrap()
-});
+static PAGES_API_SUFFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(.+\.(ts|tsx|js|jsx|mjs))$").unwrap());
 
 static EXPORT_FN_METHOD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b")
@@ -22,8 +20,7 @@ static EXPORT_FN_METHOD: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static EXPORT_CONST_METHOD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^export\s+const\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s*=")
-        .unwrap()
+    Regex::new(r"(?m)^export\s+const\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s*=").unwrap()
 });
 
 /// Emit `Route` nodes for Next.js after the registry is populated.
@@ -44,14 +41,7 @@ pub fn pass_nextjs_routes(
         if let Some(path) = app_router_path(&rel) {
             if let Ok(source) = std::fs::read_to_string(&f.abs_path) {
                 for method in exported_http_methods(&source) {
-                    emit_route(
-                        buf,
-                        project,
-                        &f.rel_path,
-                        &method,
-                        &path,
-                        "nextjs",
-                    );
+                    emit_route(buf, project, &f.rel_path, &method, &path, "nextjs");
                 }
             }
         } else if let Some(api_path) = pages_api_path(&rel) {
@@ -166,21 +156,13 @@ fn emit_route(
     } else {
         path.trim_end_matches('/').to_string()
     };
-    let method_key = if method == "ANY" {
-        "ANY"
-    } else {
-        method
-    };
+    let method_key = if method == "ANY" { "ANY" } else { method };
     let route_qn = format!(
         "{project}.next.route.{method_key}.{}",
         path_to_qn_segment(&path_norm)
     );
     let display = format!("{method_key} {path_norm}");
-    let handler_name = if method == "ANY" {
-        "handler"
-    } else {
-        method
-    };
+    let handler_name = if method == "ANY" { "handler" } else { method };
     let handler_qn = fqn::fqn_compute(project, file_rel, Some(handler_name));
     let props = serde_json::json!({
         "http_method": method_key,
@@ -189,15 +171,7 @@ fn emit_route(
         "source": source
     })
     .to_string();
-    buf.add_node(
-        "Route",
-        &display,
-        &route_qn,
-        file_rel,
-        1,
-        1,
-        Some(props),
-    );
+    buf.add_node("Route", &display, &route_qn, file_rel, 1, 1, Some(props));
     buf.add_edge_by_qn(&handler_qn, &route_qn, "HANDLES_ROUTE", None);
 }
 

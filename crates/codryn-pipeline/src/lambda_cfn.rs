@@ -51,10 +51,7 @@ pub fn pass_lambda_cfn(
                 continue;
             }
         };
-        let template_dir = f
-            .abs_path
-            .parent()
-            .unwrap_or_else(|| repo_root.as_ref());
+        let template_dir = f.abs_path.parent().unwrap_or(repo_root);
         let globals_fn = doc
             .get("Globals")
             .and_then(|g| g.get("Function"))
@@ -92,7 +89,7 @@ fn is_sam_template_name(rel_path: &str) -> bool {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    SAM_TEMPLATE_NAMES.iter().any(|n| *n == name)
+    SAM_TEMPLATE_NAMES.contains(&name)
 }
 
 fn merge_globals_function_props(props: &mut serde_yaml::Value, globals_fn: &serde_yaml::Value) {
@@ -177,7 +174,10 @@ fn emit_routes_for_function(
             .unwrap_or("GET")
             .to_uppercase();
 
-        let route_qn = format!("{project}.lambda.route.{method}.{}", path_to_qn_segment(&path));
+        let route_qn = format!(
+            "{project}.lambda.route.{method}.{}",
+            path_to_qn_segment(&path)
+        );
         let display_name = format!("{method} {path}");
         let props_json = serde_json::json!({
             "http_method": method,
@@ -201,10 +201,7 @@ fn emit_routes_for_function(
 }
 
 fn matches_http_event_type(t: &str) -> bool {
-    matches!(
-        t,
-        "HttpApi" | "Api" | "Http" | "RestApi" | "ApiGatewayHttp"
-    ) || t.contains("HttpApi")
+    matches!(t, "HttpApi" | "Api" | "Http" | "RestApi" | "ApiGatewayHttp") || t.contains("HttpApi")
 }
 
 fn split_handler(handler: &str) -> (&str, &str) {
@@ -250,7 +247,11 @@ fn normalize_http_path(p: &str) -> String {
     if p.is_empty() || p == "/" {
         return "/".into();
     }
-    let p = if p.starts_with('/') { p.to_string() } else { format!("/{p}") };
+    let p = if p.starts_with('/') {
+        p.to_string()
+    } else {
+        format!("/{p}")
+    };
     p
 }
 
@@ -309,7 +310,9 @@ pub fn pass_serverless_sls(
         let template_dir = f.abs_path.parent().unwrap_or(repo_root);
 
         for (_fn_key, fn_body) in functions {
-            let Some(fn_map) = fn_body.as_mapping() else { continue };
+            let Some(fn_map) = fn_body.as_mapping() else {
+                continue;
+            };
 
             let handler_str = fn_map
                 .get(serde_yaml::Value::String("handler".into()))
@@ -327,7 +330,12 @@ pub fn pass_serverless_sls(
             };
 
             // Resolve handler source file (no separate CodeUri in SLS — handler path is direct).
-            let handler_rel = match resolve_handler_file_rel(repo_root, template_dir, "", handler_str) {
+            let handler_rel = match resolve_handler_file_rel(
+                repo_root,
+                template_dir,
+                "",
+                handler_str,
+            ) {
                 Some(r) => r,
                 None => {
                     tracing::debug!(handler = %handler_str, "serverless_sls: could not resolve handler file");
@@ -338,12 +346,16 @@ pub fn pass_serverless_sls(
             let handler_qn = fqn::fqn_compute(project, &handler_rel, Some(export_name));
 
             for event in events {
-                let Some(ev_map) = event.as_mapping() else { continue };
+                let Some(ev_map) = event.as_mapping() else {
+                    continue;
+                };
 
                 // SLS HTTP event keys: `httpApi` (v2 / HTTP API) and `http` (v1 / REST API).
                 for event_key in ["httpApi", "http"] {
                     let key = serde_yaml::Value::String(event_key.into());
-                    let Some(ev_props) = ev_map.get(&key) else { continue };
+                    let Some(ev_props) = ev_map.get(&key) else {
+                        continue;
+                    };
 
                     let (path, method) = parse_sls_http_event(ev_props);
                     let path = normalize_http_path(&path);
@@ -417,7 +429,7 @@ fn is_sls_template(rel_path: &str) -> bool {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    SLS_TEMPLATE_NAMES.iter().any(|n| *n == name)
+    SLS_TEMPLATE_NAMES.contains(&name)
 }
 
 #[cfg(test)]
@@ -430,8 +442,7 @@ mod tests {
 
     #[test]
     fn sam_yaml_emits_route_and_edge() {
-        let dir =
-            std::env::temp_dir().join(format!("codryn_lam_{}", std::process::id() as u32));
+        let dir = std::env::temp_dir().join(format!("codryn_lam_{}", std::process::id() as u32));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(
@@ -549,7 +560,11 @@ functions:
         extraction::register_file(&mut reg, "p", &ts_get);
         let mut buf = GraphBuffer::new("p");
         pass_serverless_sls(&mut buf, &[&sls_f, &ts_create, &ts_get], "p", &dir);
-        assert!(buf.node_count() >= 2, "expected 2 Route nodes, got {}", buf.node_count());
+        assert!(
+            buf.node_count() >= 2,
+            "expected 2 Route nodes, got {}",
+            buf.node_count()
+        );
         assert!(buf.edge_count() >= 2, "expected 2 HANDLES_ROUTE edges");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -591,7 +606,10 @@ functions:
         };
         let mut buf = GraphBuffer::new("p");
         pass_serverless_sls(&mut buf, &[&sls_f, &ts_f], "p", &dir);
-        assert!(buf.node_count() >= 1, "expected Route node from shorthand httpApi event");
+        assert!(
+            buf.node_count() >= 1,
+            "expected Route node from shorthand httpApi event"
+        );
         assert!(buf.edge_count() >= 1, "expected HANDLES_ROUTE edge");
         let _ = std::fs::remove_dir_all(&dir);
     }

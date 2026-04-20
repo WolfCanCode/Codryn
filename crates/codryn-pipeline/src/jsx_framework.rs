@@ -8,12 +8,10 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-static IMPORT_NAMED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^import\s+\{([^}]+)\}\s+from\s+["']([^"']+)["']"#).unwrap()
-});
-static IMPORT_DEFAULT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^import\s+(\w+)\s+from\s+["']([^"']+)["']"#).unwrap()
-});
+static IMPORT_NAMED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^import\s+\{([^}]+)\}\s+from\s+["']([^"']+)["']"#).unwrap());
+static IMPORT_DEFAULT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^import\s+(\w+)\s+from\s+["']([^"']+)["']"#).unwrap());
 static JSX_TAG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<([A-Z][A-Za-z0-9_]*)[\s/>]").unwrap());
 
@@ -109,7 +107,9 @@ pub fn pass_jsx_framework(
             continue;
         }
         let imports = parse_import_map(&source);
-        let own_nodes = store.get_nodes_for_file(project, &f.rel_path).unwrap_or_default();
+        let own_nodes = store
+            .get_nodes_for_file(project, &f.rel_path)
+            .unwrap_or_default();
         let root = own_nodes
             .iter()
             .find(|n| {
@@ -147,8 +147,7 @@ pub fn pass_jsx_framework(
                     format!("{project}.{tag}")
                 }
             } else {
-                resolve_tag_to_qn(store, project, tag)
-                    .unwrap_or_else(|| format!("{project}.{tag}"))
+                resolve_tag_to_qn(store, project, tag).unwrap_or_else(|| format!("{project}.{tag}"))
             };
             buf.add_edge_by_qn(&src_qn, &tgt_qn, "RENDERS", None);
         }
@@ -187,7 +186,8 @@ pub fn pass_jsx_framework_props(store: &Store, files: &[&DiscoveredFile], projec
                 continue;
             }
             let mut v: serde_json::Value =
-                serde_json::from_str(n.properties_json.as_deref().unwrap_or("{}")).unwrap_or_default();
+                serde_json::from_str(n.properties_json.as_deref().unwrap_or("{}"))
+                    .unwrap_or_default();
             if v.get("decorator").is_some() {
                 continue;
             }

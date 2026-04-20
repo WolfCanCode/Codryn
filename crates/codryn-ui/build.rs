@@ -10,10 +10,7 @@ fn main() {
     let ui_dir = workspace_root.join("ui");
     let dist_dir = ui_dir.join("dist");
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        ui_dir.join("src").display()
-    );
+    println!("cargo:rerun-if-changed={}", ui_dir.join("src").display());
     println!(
         "cargo:rerun-if-changed={}",
         ui_dir.join("package.json").display()

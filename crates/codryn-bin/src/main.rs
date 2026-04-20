@@ -217,7 +217,9 @@ fn reindex_all_projects() {
             continue;
         }
         print!("  {} …", p.name);
-        match codryn_pipeline::Pipeline::new(&root, &store_path, codryn_pipeline::IndexMode::Full).run() {
+        match codryn_pipeline::Pipeline::new(&root, &store_path, codryn_pipeline::IndexMode::Full)
+            .run()
+        {
             Ok(()) => println!(" ✓"),
             Err(e) => println!(" ✗ {}", e),
         }

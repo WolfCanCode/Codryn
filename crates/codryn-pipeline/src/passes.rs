@@ -436,7 +436,10 @@ pub fn pass_express_routes(
             Err(_) => continue,
         };
         for caps in ROUTE_RE.captures_iter(&source) {
-            let method = caps.get(1).map(|m| m.as_str().to_uppercase()).unwrap_or_default();
+            let method = caps
+                .get(1)
+                .map(|m| m.as_str().to_uppercase())
+                .unwrap_or_default();
             let path = caps
                 .get(2)
                 .or_else(|| caps.get(3))
@@ -451,7 +454,10 @@ pub fn pass_express_routes(
             emit_express_route(buf, reg, project, &f.rel_path, &method, &path, handler);
         }
         for caps in FASTIFY_RE.captures_iter(&source) {
-            let method = caps.get(1).map(|m| m.as_str().to_uppercase()).unwrap_or_default();
+            let method = caps
+                .get(1)
+                .map(|m| m.as_str().to_uppercase())
+                .unwrap_or_default();
             let path = caps
                 .get(2)
                 .or_else(|| caps.get(3))
@@ -494,33 +500,8 @@ fn emit_express_route(
         "source": "express"
     })
     .to_string();
-    buf.add_node(
-        "Route",
-        &display,
-        &route_qn,
-        file_rel,
-        1,
-        1,
-        Some(props),
-    );
+    buf.add_node("Route", &display, &route_qn, file_rel, 1, 1, Some(props));
     buf.add_edge_by_qn(&handler_qn, &route_qn, "HANDLES_ROUTE", None);
-}
-
-#[cfg(test)]
-mod express_route_tests {
-    #[test]
-    fn express_regex_compiles_without_backrefs() {
-        // Rust `regex` doesn't support backreferences (`\1`, `\2`, ...). This test ensures
-        // we don't accidentally reintroduce them.
-        let _ = regex::Regex::new(
-            r#"(?s)\b(?:app|router)\s*\.\s*(get|post|put|patch|delete|all|use)\s*\(\s*(?:'([^']+)'|"([^"]+)")\s*,\s*(\w+)\s*[,\)]"#,
-        )
-        .unwrap();
-        let _ = regex::Regex::new(
-            r#"(?s)\b(?:fastify|f)\s*\.\s*(get|post|put|patch|delete|all)\s*\(\s*(?:'([^']+)'|"([^"]+)")\s*,\s*(\w+)\s*[,\)]"#,
-        )
-        .unwrap();
-    }
 }
 
 /// Pass: Create Route nodes + HANDLES_ROUTE/ACCEPTS_DTO/RETURNS_DTO edges for Spring Boot controllers.
@@ -599,5 +580,22 @@ pub fn pass_cross_project_mapping(buf: &mut GraphBuffer, store: &Store, project:
         for (a, b) in &matches {
             buf.add_edge_by_qn(&a.qualified_name, &b.qualified_name, "MAPS_TO", None);
         }
+    }
+}
+
+#[cfg(test)]
+mod express_route_tests {
+    #[test]
+    fn express_regex_compiles_without_backrefs() {
+        // Rust `regex` doesn't support backreferences (`\1`, `\2`, ...). This test ensures
+        // we don't accidentally reintroduce them.
+        let _ = regex::Regex::new(
+            r#"(?s)\b(?:app|router)\s*\.\s*(get|post|put|patch|delete|all|use)\s*\(\s*(?:'([^']+)'|"([^"]+)")\s*,\s*(\w+)\s*[,\)]"#,
+        )
+        .unwrap();
+        let _ = regex::Regex::new(
+            r#"(?s)\b(?:fastify|f)\s*\.\s*(get|post|put|patch|delete|all)\s*\(\s*(?:'([^']+)'|"([^"]+)")\s*,\s*(\w+)\s*[,\)]"#,
+        )
+        .unwrap();
     }
 }

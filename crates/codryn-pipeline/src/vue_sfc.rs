@@ -10,13 +10,38 @@ use std::sync::LazyLock;
 
 static IMPORT_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^import\s+(.+)\s+from\s+["']([^"']+)["']"#).unwrap());
-static TEMPLATE_TAG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"<([A-Z][A-Za-z0-9-]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b"#).unwrap());
+static TEMPLATE_TAG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"<([A-Z][A-Za-z0-9-]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)\b"#).unwrap()
+});
 
 const HTML_TAGS: &[&str] = &[
-    "div", "span", "p", "a", "img", "ul", "ol", "li", "button", "input", "form", "label",
-    "select", "option", "textarea", "table", "tr", "td", "th", "thead", "tbody", "svg", "path",
-    "template", "slot", "router-view", "router-link",
+    "div",
+    "span",
+    "p",
+    "a",
+    "img",
+    "ul",
+    "ol",
+    "li",
+    "button",
+    "input",
+    "form",
+    "label",
+    "select",
+    "option",
+    "textarea",
+    "table",
+    "tr",
+    "td",
+    "th",
+    "thead",
+    "tbody",
+    "svg",
+    "path",
+    "template",
+    "slot",
+    "router-view",
+    "router-link",
 ];
 
 fn extract_block<'a>(source: &'a str, open: &str, close: &str) -> Option<&'a str> {
@@ -35,7 +60,7 @@ fn file_stem_pascal(rel_path: &str) -> String {
 }
 
 fn kebab_to_pascal(s: &str) -> String {
-    s.split(|c: char| c == '-' || c == '_')
+    s.split(['-', '_'])
         .filter(|p| !p.is_empty())
         .map(|p| {
             let mut c = p.chars();
@@ -55,7 +80,7 @@ fn parse_vue_imports(script: &str) -> HashMap<String, String> {
         if lhs.starts_with('{') {
             let inner = lhs.trim_start_matches('{').trim_end_matches('}');
             for part in inner.split(',') {
-                let name = part.trim().split_whitespace().last().unwrap_or("").trim();
+                let name = part.split_whitespace().last().unwrap_or("").trim();
                 if !name.is_empty() {
                     m.insert(name.to_string(), path.clone());
                 }

@@ -585,7 +585,11 @@ async fn handle_frontend_flow(
         v.get("layer")
             .and_then(|l| l.as_str())
             .map(String::from)
-            .or_else(|| v.get("framework").and_then(|l| l.as_str()).map(String::from))
+            .or_else(|| {
+                v.get("framework")
+                    .and_then(|l| l.as_str())
+                    .map(String::from)
+            })
             .unwrap_or_else(|| "unknown".into())
     };
 

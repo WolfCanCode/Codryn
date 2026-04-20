@@ -1,21 +1,21 @@
 pub mod angular_adapter;
 pub mod extraction;
+pub mod jsx_framework;
 pub mod lambda_cfn;
 pub mod nextjs_routes;
-pub mod jsx_framework;
-pub mod vue_sfc;
 pub mod passes;
 pub mod registry;
 pub mod spring_common;
 pub mod spring_java;
 pub mod spring_kotlin;
+pub mod vue_sfc;
 
 use anyhow::Result;
+use chrono::Utc;
 use codryn_discover::{discover_files, DiscoveredFile};
 use codryn_foundation::fqn;
 use codryn_graph_buffer::GraphBuffer;
 use codryn_store::{FileHash, Project, Store};
-use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
