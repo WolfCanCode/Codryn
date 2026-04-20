@@ -88,11 +88,70 @@ jobs:
 
           printf "changelog<<EOF\n%b\nEOF" "$body" >> "$GITHUB_OUTPUT"
 
+      - name: Update CHANGELOG.md
+        run: |
+          version="${{ steps.bump.outputs.version }}"
+          date=$(date +%Y-%m-%d)
+          changelog="${{ steps.changelog.outputs.changelog }}"
+
+          # Build new release section
+          new_section="## [${version}] - ${date}\n\n${changelog}"
+
+          # Insert after the [Unreleased] line and update comparison links
+          awk -v section="$new_section" -v ver="$version" '
+            /^## \[Unreleased\]/ {
+              print
+              print ""
+              printf "%s\n", section
+              next
+            }
+            /^\[Unreleased\]:/ {
+              printf "[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v%s...HEAD\n", ver
+              printf "[%s]: https://github.com/WolfCanCode/Codryn/compare/", ver
+              # find previous version tag from this line if it exists
+              next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.tmp
+
+          # Rebuild comparison links at bottom cleanly
+          python3 - <<PYEOF
+          import re
+
+          with open("CHANGELOG.md") as f:
+              content = f.read()
+
+          with open("CHANGELOG.tmp") as f:
+              tmp = f.read()
+
+          # Extract all [x.y.z] version headers in order
+          versions = re.findall(r'^## \[(\d+\.\d+\.\d+)\]', tmp, re.MULTILINE)
+          versions = ["$version"] + [v for v in versions if v != "$version"]
+
+          # Strip existing link definitions
+          tmp = re.sub(r'\n\[Unreleased\]:.*', '', tmp)
+          tmp = re.sub(r'\n\[\d+\.\d+\.\d+\]:.*', '', tmp)
+          tmp = tmp.rstrip()
+
+          # Build link section
+          links = []
+          links.append(f"[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v{versions[0]}...HEAD")
+          for i, v in enumerate(versions):
+              if i + 1 < len(versions):
+                  links.append(f"[{v}]: https://github.com/WolfCanCode/Codryn/compare/v{versions[i+1]}...v{v}")
+              else:
+                  links.append(f"[{v}]: https://github.com/WolfCanCode/Codryn/releases/tag/v{v}")
+
+          with open("CHANGELOG.md", "w") as f:
+              f.write(tmp + "\n\n" + "\n".join(links) + "\n")
+          PYEOF
+          rm -f CHANGELOG.tmp
+
       - name: Commit version bump and tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
+          git add Cargo.toml Cargo.lock CHANGELOG.md
           git commit -m "chore: release v${{ steps.bump.outputs.version }}"
           git tag "v${{ steps.bump.outputs.version }}"
           git push origin main
