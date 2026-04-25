@@ -222,6 +222,13 @@ impl Pipeline {
         );
         buf.flush(&store)?;
 
+        // Pass 5f: CI/CD pipelines and infrastructure resources.
+        if self.is_cancelled() {
+            return Ok(());
+        }
+        passes::pass_ci_and_infra(&mut buf, &files.iter().collect::<Vec<_>>(), &project_name);
+        buf.flush(&store)?;
+
         if self.is_cancelled() {
             return Ok(());
         }

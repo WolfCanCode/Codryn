@@ -34,6 +34,8 @@ AI coding agents are much better when they can understand structure, not just gr
 - call paths and imports
 - routes, DTOs, and service layers
 - frontend component relationships and dependency injection
+- CI/CD pipelines, jobs, stages, and dependency edges
+- infrastructure resources from Docker, Kubernetes, Helm, and Terraform-style manifests
 - cross-project links between systems
 
 That gives agents fast answers for things like:
@@ -53,6 +55,7 @@ That gives agents fast answers for things like:
 - **Incremental indexing** so re-runs stay fast
 - **Cross-project linking** for multi-repo systems
 - **30 MCP tools** for search, tracing, navigation, analysis, and architecture
+- **CI/CD and infrastructure discovery** for pipeline DAGs and deployment resources
 - **64 language support** through tree-sitter
 - **Single binary** with no Docker required
 
@@ -73,6 +76,7 @@ That gives agents fast answers for things like:
 - Find routes, references, tests, and likely entrypoints
 - Query the graph directly with Cypher
 - Visualize projects and relationships in the browser
+- Inspect pipeline DAGs and infrastructure resources
 
 ### Web dashboard
 
@@ -99,7 +103,20 @@ Some of the most useful tools:
 | `impact_analysis` | Estimate what a change will affect |
 | `find_routes` | Discover API routes and DTO relationships |
 | `trace_backend_flow` | Trace route to controller to service to repository |
+| `find_pipelines` | Discover CI/CD pipelines with stages, jobs, and dependencies |
+| `find_infrastructure` | Discover Docker, Kubernetes, Helm, and Terraform-style resources |
 | `suggest_next_reads` | Help agents decide what to inspect next |
+
+## Web API
+
+The embedded dashboard also exposes JSON endpoints for local UI features:
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/analytics/{id}` | Return a single analytics call detail |
+| `GET /api/pipelines?project=<name>` | List pipeline DAGs for a project |
+| `GET /api/pipelines?project=<name>&name=<pipeline>` | Return one pipeline DAG |
+| `GET /api/infrastructure?project=<name>[&type=<kind>]` | List indexed infrastructure resources |
 
 ## Architecture
 

@@ -19,6 +19,7 @@ export interface ToolCall {
   duration_ms: number; success: boolean; called_at: string;
   agent_name: string; model_name: string;
   input_tokens: number; output_tokens: number; response_bytes: number;
+  request_body?: string; response_body?: string;
 }
 export interface Analytics {
   total_calls: number; per_tool: ToolCount[]; per_source: SourceCount[];
@@ -26,4 +27,38 @@ export interface Analytics {
   total_input_tokens: number; total_output_tokens: number; total_response_bytes: number;
   estimated_tokens_used: number; estimated_tokens_without_tools: number; estimated_tokens_saved: number;
   recent: ToolCall[];
+}
+export interface PipelineDag {
+  pipeline: PipelineInfo;
+  stages: StageInfo[];
+  jobs: JobInfo[];
+  edges: DagEdge[];
+}
+export interface PipelineInfo {
+  name: string;
+  file_path: string;
+  ci_system: string;
+  triggers: string[];
+}
+export interface StageInfo {
+  name: string;
+  order: number;
+}
+export interface JobInfo {
+  name: string;
+  stage: string;
+  image?: string;
+  dependencies: string[];
+}
+export interface DagEdge {
+  source: string;
+  target: string;
+  edge_type: string;
+}
+export interface InfraResource {
+  name: string;
+  resource_type: string;
+  kind: string;
+  file_path: string;
+  properties: Record<string, unknown>;
 }

@@ -7,13 +7,14 @@ import { createNodeBorderProgram } from '@sigma/node-border';
 import { MultiDirectedGraph } from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import FA2Layout from 'graphology-layout-forceatlas2/worker';
-import { Plus, Minus, Maximize, MapPin, X, Loader2, AlertCircle, Search, GitBranch, Box, ArrowRight } from 'lucide-react';
+import { Plus, Minus, Maximize, MapPin, X, Loader2, AlertCircle, Search, GitBranch, Box, ArrowRight, Workflow, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { fetchLayout, fetchRoutes, fetchBackendFlow, fetchComponents, fetchFrontendFlow } from '@/lib/rpc';
-import type { GraphData, GraphNode } from '@/lib/types';
+import { fetchLayout, fetchRoutes, fetchBackendFlow, fetchComponents, fetchFrontendFlow, fetchPipelines, fetchPipelineDag, fetchInfrastructure } from '@/lib/rpc';
+import type { GraphData, GraphNode, InfraResource, PipelineDag } from '@/lib/types';
+import { PipelineDagView } from '@/components/PipelineDagView';
 
 const MINIMAP_WIDTH = 176;
 const MINIMAP_HEIGHT = 132;
@@ -225,7 +226,7 @@ export default function GraphPage() {
   const [connectedCallers, setConnectedCallers] = useState<NeighborNode[]>([]);
   const [connectedCallees, setConnectedCallees] = useState<NeighborNode[]>([]);
   const [detailPos, setDetailPos] = useState<{ x: number; y: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<'graph' | 'flow'>('graph');
+  const [activeTab, setActiveTab] = useState<'graph' | 'routes' | 'components' | 'pipelines' | 'infrastructure'>('graph');
   const [searchQuery, setSearchQuery] = useState('');
   const [labelFilter, setLabelFilter] = useState('All');
   const [edgeFilter, setEdgeFilter] = useState('All');
@@ -240,6 +241,12 @@ export default function GraphPage() {
   const [flowMode, setFlowMode] = useState<'backend' | 'frontend'>('backend');
   const [flowComponents, setFlowComponents] = useState<FlowComponent[]>([]);
   const [flowActiveComponent, setFlowActiveComponent] = useState<FlowComponent | null>(null);
+  const [pipelineList, setPipelineList] = useState<PipelineDag[]>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [selectedPipeline, setSelectedPipeline] = useState<PipelineDag | null>(null);
+  const [selectedPipelineDag, setSelectedPipelineDag] = useState<PipelineDag | null>(null);
+  const [infrastructure, setInfrastructure] = useState<InfraResource[]>([]);
+  const [infraLoading, setInfraLoading] = useState(false);
 
   const graphPanelRef = useRef<HTMLDivElement>(null);
   const graphContainerRef = useRef<HTMLDivElement>(null);
@@ -730,6 +737,44 @@ export default function GraphPage() {
     }
   }, [project]);
 
+  const loadPipelines = useCallback(async () => {
+    if (!project) return;
+    setPipelineLoading(true);
+    try {
+      const res = await fetchPipelines(project);
+      setPipelineList(res.pipelines ?? []);
+    } catch {
+      setPipelineList([]);
+    } finally {
+      setPipelineLoading(false);
+    }
+  }, [project]);
+
+  const selectPipeline = useCallback(async (pipeline: PipelineDag) => {
+    if (!project) return;
+    setSelectedPipeline(pipeline);
+    setSelectedPipelineDag(null);
+    try {
+      const dag = await fetchPipelineDag(project, pipeline.pipeline.name);
+      setSelectedPipelineDag(dag);
+    } catch {
+      setSelectedPipelineDag(pipeline);
+    }
+  }, [project]);
+
+  const loadInfrastructure = useCallback(async () => {
+    if (!project) return;
+    setInfraLoading(true);
+    try {
+      const res = await fetchInfrastructure(project);
+      setInfrastructure(res.resources ?? []);
+    } catch {
+      setInfrastructure([]);
+    } finally {
+      setInfraLoading(false);
+    }
+  }, [project]);
+
   const loadBackendFlow = useCallback(async (route: FlowRoute) => {
     if (!project) return;
     setFlowActiveRoute(route);
@@ -813,12 +858,20 @@ export default function GraphPage() {
   }, [loadGraph]);
 
   useEffect(() => {
-    if (activeTab === 'flow') loadRoutes();
+    if (activeTab === 'routes' || activeTab === 'components') loadRoutes();
   }, [activeTab, loadRoutes]);
 
   useEffect(() => {
     if (rawData && activeTab === 'graph') buildGraph(rawData);
   }, [activeTab, buildGraph, edgeFilter, labelFilter, rawData, searchQuery]);
+
+  useEffect(() => {
+    if (activeTab === 'pipelines') loadPipelines();
+  }, [activeTab, loadPipelines]);
+
+  useEffect(() => {
+    if (activeTab === 'infrastructure') loadInfrastructure();
+  }, [activeTab, loadInfrastructure]);
 
   useEffect(() => {
     const element = graphContainerRef.current;
@@ -896,12 +949,21 @@ export default function GraphPage() {
         {/* Sidebar */}
         <div className="w-[260px] shrink-0 border-r border-zinc-200 bg-white flex flex-col overflow-hidden">
           {/* Tab buttons */}
-          <div className="flex border-b border-zinc-200">
-            <button onClick={() => setActiveTab('graph')} className={`flex-1 py-2 text-xs font-medium transition-colors ${activeTab === 'graph' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
+          <div className="grid grid-cols-5 border-b border-zinc-200">
+            <button onClick={() => setActiveTab('graph')} className={`py-2 text-xs font-medium transition-colors ${activeTab === 'graph' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
               <GitBranch className="w-3 h-3 inline mr-1" />Graph
             </button>
-            <button onClick={() => setActiveTab('flow')} className={`flex-1 py-2 text-xs font-medium transition-colors ${activeTab === 'flow' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
-              <ArrowRight className="w-3 h-3 inline mr-1" />Flow
+            <button onClick={() => { setActiveTab('routes'); setFlowMode('backend'); }} className={`py-2 text-xs font-medium transition-colors ${activeTab === 'routes' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
+              <ArrowRight className="w-3 h-3 inline mr-1" />Routes
+            </button>
+            <button onClick={() => { setActiveTab('components'); setFlowMode('frontend'); }} className={`py-2 text-xs font-medium transition-colors ${activeTab === 'components' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
+              <Box className="w-3 h-3 inline mr-1" />UI
+            </button>
+            <button onClick={() => setActiveTab('pipelines')} className={`py-2 text-xs font-medium transition-colors ${activeTab === 'pipelines' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
+              <Workflow className="w-3 h-3 inline mr-1" />CI
+            </button>
+            <button onClick={() => setActiveTab('infrastructure')} className={`py-2 text-xs font-medium transition-colors ${activeTab === 'infrastructure' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50'}`}>
+              <Server className="w-3 h-3 inline mr-1" />Infra
             </button>
           </div>
 
@@ -956,15 +1018,10 @@ export default function GraphPage() {
                   </div>
                 </div>
               </>
-            ) : (
-              /* Flow tab */
+            ) : activeTab === 'routes' || activeTab === 'components' ? (
+              /* Flow tabs */
               <>
-                <div className="flex gap-1">
-                  <Button size="sm" variant={flowMode === 'backend' ? 'default' : 'ghost'} className="flex-1 h-7 text-xs" onClick={() => setFlowMode('backend')}>Routes</Button>
-                  <Button size="sm" variant={flowMode === 'frontend' ? 'default' : 'ghost'} className="flex-1 h-7 text-xs" onClick={() => setFlowMode('frontend')}>Components</Button>
-                </div>
-
-                {flowMode === 'backend' ? (
+                {activeTab === 'routes' ? (
                   <div className="relative space-y-1">
                     {flowLoading && (
                       <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 rounded">
@@ -998,11 +1055,44 @@ export default function GraphPage() {
                 )}
 
               </>
+            ) : activeTab === 'pipelines' ? (
+              <div className="relative space-y-1">
+                {pipelineLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 rounded">
+                    <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                  </div>
+                )}
+                {pipelineList.map((p) => (
+                  <button key={p.pipeline.name} onClick={() => selectPipeline(p)} className={`w-full text-left p-2 rounded text-xs hover:bg-zinc-100 ${selectedPipeline === p ? 'bg-zinc-100 ring-1 ring-zinc-300' : ''}`}>
+                    <span className="text-zinc-800">{p.pipeline.name}</span>
+                    <p className="text-[10px] text-zinc-500 truncate">{p.pipeline.ci_system || 'pipeline'} · {p.jobs.length} jobs</p>
+                  </button>
+                ))}
+                {!pipelineLoading && !pipelineList.length && <p className="text-xs text-zinc-500 text-center py-4">No pipelines found</p>}
+              </div>
+            ) : (
+              <div className="relative space-y-1">
+                {infraLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 rounded">
+                    <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                  </div>
+                )}
+                {infrastructure.map((r, i) => (
+                  <div key={`${r.kind}:${r.name}:${i}`} className="rounded p-2 text-xs hover:bg-zinc-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-zinc-800">{r.name}</span>
+                      <Badge variant="outline" className="text-[9px]">{r.kind || 'infra'}</Badge>
+                    </div>
+                    <p className="mt-0.5 truncate text-[10px] text-zinc-500">{r.resource_type || 'resource'} · {r.file_path}</p>
+                  </div>
+                ))}
+                {!infraLoading && !infrastructure.length && <p className="text-xs text-zinc-500 text-center py-4">No infrastructure found</p>}
+              </div>
             )}
           </div>
 
           {/* Flow Summary — pinned at bottom of sidebar, always visible on Flow tab */}
-          {activeTab === 'flow' && (
+          {(activeTab === 'routes' || activeTab === 'components') && (
             <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-2.5">
               <div className="flex items-center gap-1.5 mb-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Flow Summary</p>
@@ -1059,7 +1149,11 @@ export default function GraphPage() {
             backgroundSize: '30px 30px',
           }}
         >
-          <div ref={graphContainerRef} className="h-full min-h-0 w-full min-w-0" />
+          {activeTab === 'pipelines' ? (
+            <PipelineDagView dag={selectedPipelineDag || selectedPipeline} />
+          ) : (
+            <div ref={graphContainerRef} className="h-full min-h-0 w-full min-w-0" />
+          )}
 
           {/* Loading overlay */}
           {loading && (
@@ -1083,7 +1177,7 @@ export default function GraphPage() {
           )}
 
           {/* Node detail popover */}
-          {selectedNode && detailPos && (
+          {activeTab !== 'pipelines' && selectedNode && detailPos && (
             <div
               className="absolute z-30 w-64 bg-white border border-zinc-200 rounded-lg shadow-xl"
               style={{
@@ -1133,7 +1227,7 @@ export default function GraphPage() {
           )}
 
           {/* Zoom row above minimap */}
-          <div className="pointer-events-auto absolute bottom-3 right-3 z-10 flex flex-col items-end gap-2">
+          {activeTab !== 'pipelines' && <div className="pointer-events-auto absolute bottom-3 right-3 z-10 flex flex-col items-end gap-2">
             <div className="flex flex-row gap-1">
               <Button size="icon" variant="outline" className="h-8 w-8 border-zinc-300 bg-white/95 shadow-sm" onClick={zoomIn}><Plus className="h-4 w-4" /></Button>
               <Button size="icon" variant="outline" className="h-8 w-8 border-zinc-300 bg-white/95 shadow-sm" onClick={zoomOut}><Minus className="h-4 w-4" /></Button>
@@ -1156,7 +1250,7 @@ export default function GraphPage() {
                 }}
               />
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

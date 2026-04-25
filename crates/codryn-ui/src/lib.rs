@@ -4,6 +4,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use codryn_services::pipeline::PipelineService;
 use codryn_store::Store;
 use rust_embed::Embed;
 use serde::Deserialize;
@@ -70,6 +71,13 @@ pub async fn start_server(store_path: &Path, port: u16) -> Result<()> {
                 move || handle_analytics(state)
             }),
         )
+        .route(
+            "/api/analytics/{id}",
+            get({
+                let state = state.clone();
+                move |path| handle_analytics_detail(state, path)
+            }),
+        )
         .route("/api/install", post(handle_install))
         .route("/api/uninstall", post(handle_uninstall))
         .route(
@@ -98,6 +106,20 @@ pub async fn start_server(store_path: &Path, port: u16) -> Result<()> {
             get({
                 let state = state.clone();
                 move |query| handle_languages(state, query)
+            }),
+        )
+        .route(
+            "/api/pipelines",
+            get({
+                let state = state.clone();
+                move |query| handle_pipelines(state, query)
+            }),
+        )
+        .route(
+            "/api/infrastructure",
+            get({
+                let state = state.clone();
+                move |query| handle_infrastructure(state, query)
             }),
         )
         .fallback(serve_static);
@@ -374,6 +396,20 @@ async fn handle_analytics(state: Arc<AppState>) -> Json<Value> {
     match open_store(&state.store_path) {
         Ok(s) => match s.get_tool_analytics(100) {
             Ok(a) => Json(serde_json::to_value(a).unwrap_or(json!({}))),
+            Err(e) => Json(json!({ "error": e.to_string() })),
+        },
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn handle_analytics_detail(
+    state: Arc<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Json<Value> {
+    match open_store(&state.store_path) {
+        Ok(s) => match s.get_tool_call_detail(id) {
+            Ok(Some(tc)) => Json(serde_json::to_value(tc).unwrap_or(json!({}))),
+            Ok(None) => Json(json!({ "error": "not found" })),
             Err(e) => Json(json!({ "error": e.to_string() })),
         },
         Err(e) => Json(json!({ "error": e.to_string() })),
@@ -919,6 +955,53 @@ async fn handle_languages(state: Arc<AppState>, Query(q): Query<LangQuery>) -> J
         "frameworks": frameworks,
         "libraries": libraries,
     }))
+}
+
+#[derive(Deserialize)]
+struct PipelinesQuery {
+    project: String,
+    name: Option<String>,
+}
+
+async fn handle_pipelines(state: Arc<AppState>, Query(q): Query<PipelinesQuery>) -> Json<Value> {
+    let store = match open_store(&state.store_path) {
+        Ok(s) => s,
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    if let Some(pipeline_name) = &q.name {
+        match PipelineService::get_pipeline_dag(&store, &q.project, pipeline_name) {
+            Ok(dag) => Json(json!(dag)),
+            Err(e) => Json(json!({ "error": e.to_string() })),
+        }
+    } else {
+        match PipelineService::list_pipelines(&store, &q.project) {
+            Ok(pipelines) => Json(json!({ "pipelines": pipelines, "count": pipelines.len() })),
+            Err(e) => Json(json!({ "error": e.to_string() })),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct InfrastructureQuery {
+    project: String,
+    #[serde(rename = "type")]
+    infra_type: Option<String>,
+}
+
+async fn handle_infrastructure(
+    state: Arc<AppState>,
+    Query(q): Query<InfrastructureQuery>,
+) -> Json<Value> {
+    let store = match open_store(&state.store_path) {
+        Ok(s) => s,
+        Err(e) => return Json(json!({ "error": e.to_string() })),
+    };
+
+    match PipelineService::list_infrastructure(&store, &q.project, q.infra_type.as_deref()) {
+        Ok(resources) => Json(json!({ "resources": resources, "count": resources.len() })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
 }
 
 fn open_store(path: &Path) -> Result<Store> {

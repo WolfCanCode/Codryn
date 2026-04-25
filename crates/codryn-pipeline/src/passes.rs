@@ -85,6 +85,337 @@ pub fn pass_structure(
     }
 }
 
+pub fn pass_ci_and_infra(buf: &mut GraphBuffer, files: &[&DiscoveredFile], project: &str) {
+    for f in files {
+        let source = match std::fs::read_to_string(&f.abs_path) {
+            Ok(source) => source,
+            Err(_) => continue,
+        };
+        match f.language {
+            Language::Yaml if is_github_actions(&f.rel_path) => {
+                parse_github_actions(buf, &source, &f.rel_path, project);
+            }
+            Language::Yaml if is_gitlab_ci(&f.rel_path) => {
+                parse_gitlab_ci(buf, &source, &f.rel_path, project);
+            }
+            Language::Yaml | Language::Kustomize if is_kubernetes_manifest(&source) => {
+                parse_kubernetes_resource(buf, &source, &f.rel_path, project);
+            }
+            Language::Yaml if is_helm_chart(&f.rel_path, &source) => {
+                add_infra_node(
+                    buf,
+                    project,
+                    "helm",
+                    "chart",
+                    &helm_name(&f.rel_path),
+                    &f.rel_path,
+                    serde_json::json!({}),
+                );
+            }
+            Language::Dockerfile => parse_dockerfile(buf, &source, &f.rel_path, project),
+            Language::Hcl => parse_hcl_infra(buf, &source, &f.rel_path, project),
+            _ => {}
+        }
+    }
+}
+
+fn is_github_actions(path: &str) -> bool {
+    path.starts_with(".github/workflows/") && (path.ends_with(".yml") || path.ends_with(".yaml"))
+}
+
+fn is_gitlab_ci(path: &str) -> bool {
+    path == ".gitlab-ci.yml" || path == ".gitlab-ci.yaml"
+}
+
+fn pipeline_name_from_path(path: &str) -> String {
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("pipeline")
+        .to_owned()
+}
+
+fn yaml_mapping(source: &str) -> Option<serde_yaml::Mapping> {
+    serde_yaml::from_str::<serde_yaml::Value>(source)
+        .ok()?
+        .as_mapping()
+        .cloned()
+}
+
+fn yaml_string(value: &serde_yaml::Value) -> Option<String> {
+    value.as_str().map(str::to_owned)
+}
+
+fn yaml_string_list(value: &serde_yaml::Value) -> Vec<String> {
+    match value {
+        serde_yaml::Value::String(s) => vec![s.clone()],
+        serde_yaml::Value::Sequence(seq) => seq.iter().filter_map(yaml_string).collect(),
+        serde_yaml::Value::Mapping(map) => map.keys().filter_map(yaml_string).collect(),
+        _ => vec![],
+    }
+}
+
+fn parse_github_actions(buf: &mut GraphBuffer, source: &str, path: &str, project: &str) {
+    let Some(root) = yaml_mapping(source) else {
+        return;
+    };
+    let pipeline_name = root
+        .get(serde_yaml::Value::String("name".into()))
+        .and_then(yaml_string)
+        .unwrap_or_else(|| pipeline_name_from_path(path));
+    let pipeline_qn = format!("{project}.pipeline.github.{pipeline_name}");
+    let triggers = root
+        .get(serde_yaml::Value::String("on".into()))
+        .or_else(|| root.get(serde_yaml::Value::Bool(true)))
+        .map(yaml_string_list)
+        .unwrap_or_default();
+    buf.add_node(
+        "Pipeline",
+        &pipeline_name,
+        &pipeline_qn,
+        path,
+        0,
+        0,
+        Some(serde_json::json!({ "ci_system": "github", "triggers": triggers }).to_string()),
+    );
+
+    let Some(jobs) = root
+        .get(serde_yaml::Value::String("jobs".into()))
+        .and_then(|v| v.as_mapping())
+    else {
+        return;
+    };
+    for (key, value) in jobs {
+        let Some(job_name) = key.as_str() else {
+            continue;
+        };
+        let Some(job_map) = value.as_mapping() else {
+            continue;
+        };
+        let image = job_map
+            .get(serde_yaml::Value::String("runs-on".into()))
+            .and_then(yaml_string)
+            .unwrap_or_default();
+        let job_qn = format!("{project}.pipeline.github.{pipeline_name}.job.{job_name}");
+        let dependencies = job_map
+            .get(serde_yaml::Value::String("needs".into()))
+            .map(yaml_string_list)
+            .unwrap_or_default();
+        buf.add_node(
+            "Job",
+            job_name,
+            &job_qn,
+            path,
+            0,
+            0,
+            Some(
+                serde_json::json!({
+                    "pipeline_name": pipeline_name,
+                    "stage": "",
+                    "image": image,
+                    "dependencies": dependencies,
+                })
+                .to_string(),
+            ),
+        );
+        for dependency in dependencies {
+            let dependency_qn =
+                format!("{project}.pipeline.github.{pipeline_name}.job.{dependency}");
+            buf.add_edge_by_qn(&job_qn, &dependency_qn, "DEPENDS_ON", None);
+        }
+    }
+}
+
+fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, path: &str, project: &str) {
+    let Some(root) = yaml_mapping(source) else {
+        return;
+    };
+    let pipeline_name = "CI";
+    let pipeline_qn = format!("{project}.pipeline.gitlab.{pipeline_name}");
+    buf.add_node(
+        "Pipeline",
+        pipeline_name,
+        &pipeline_qn,
+        path,
+        0,
+        0,
+        Some(serde_json::json!({ "ci_system": "gitlab", "triggers": [] }).to_string()),
+    );
+
+    let stages = root
+        .get(serde_yaml::Value::String("stages".into()))
+        .and_then(|v| v.as_sequence())
+        .map(|seq| seq.iter().filter_map(yaml_string).collect::<Vec<_>>())
+        .unwrap_or_else(|| vec!["build".into(), "test".into(), "deploy".into()]);
+    for (order, stage) in stages.iter().enumerate() {
+        let stage_qn = format!("{project}.pipeline.gitlab.{pipeline_name}.stage.{stage}");
+        buf.add_node(
+            "Stage",
+            stage,
+            &stage_qn,
+            path,
+            0,
+            0,
+            Some(serde_json::json!({ "pipeline_name": pipeline_name, "order": order }).to_string()),
+        );
+    }
+
+    for (key, value) in root {
+        let Some(job_name) = key.as_str() else {
+            continue;
+        };
+        if matches!(
+            job_name,
+            "stages" | "include" | "variables" | "workflow" | "default"
+        ) {
+            continue;
+        }
+        let Some(job_map) = value.as_mapping() else {
+            continue;
+        };
+        if !job_map.contains_key(serde_yaml::Value::String("script".into())) {
+            continue;
+        }
+        let stage = job_map
+            .get(serde_yaml::Value::String("stage".into()))
+            .and_then(yaml_string)
+            .unwrap_or_else(|| stages.first().cloned().unwrap_or_else(|| "test".into()));
+        let image = job_map
+            .get(serde_yaml::Value::String("image".into()))
+            .and_then(yaml_string);
+        let job_qn = format!("{project}.pipeline.gitlab.{pipeline_name}.job.{job_name}");
+        buf.add_node(
+            "Job",
+            job_name,
+            &job_qn,
+            path,
+            0,
+            0,
+            Some(
+                serde_json::json!({
+                    "pipeline_name": pipeline_name,
+                    "stage": stage,
+                    "image": image.unwrap_or_default(),
+                })
+                .to_string(),
+            ),
+        );
+        let stage_qn = format!("{project}.pipeline.gitlab.{pipeline_name}.stage.{stage}");
+        buf.add_edge_by_qn(&job_qn, &stage_qn, "BELONGS_TO_STAGE", None);
+        for dependency in job_map
+            .get(serde_yaml::Value::String("needs".into()))
+            .map(yaml_string_list)
+            .unwrap_or_default()
+        {
+            let dependency_qn =
+                format!("{project}.pipeline.gitlab.{pipeline_name}.job.{dependency}");
+            buf.add_edge_by_qn(&job_qn, &dependency_qn, "DEPENDS_ON", None);
+        }
+    }
+}
+
+fn add_infra_node(
+    buf: &mut GraphBuffer,
+    project: &str,
+    kind: &str,
+    resource_type: &str,
+    name: &str,
+    path: &str,
+    extra: serde_json::Value,
+) {
+    let qn = format!("{project}.infra.{kind}.{resource_type}.{name}");
+    let mut props = serde_json::json!({
+        "infra_type": kind,
+        "resource_type": resource_type,
+    });
+    if let (Some(dst), Some(src)) = (props.as_object_mut(), extra.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
+    buf.add_node("Infra", name, &qn, path, 0, 0, Some(props.to_string()));
+}
+
+fn parse_dockerfile(buf: &mut GraphBuffer, source: &str, path: &str, project: &str) {
+    static FROM_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?im)^FROM\s+(?:--platform=\S+\s+)?(\S+)").unwrap());
+    for caps in FROM_RE.captures_iter(source) {
+        if let Some(image) = caps.get(1).map(|m| m.as_str()) {
+            add_infra_node(
+                buf,
+                project,
+                "docker",
+                "image",
+                image,
+                path,
+                serde_json::json!({ "image": image }),
+            );
+        }
+    }
+}
+
+fn is_kubernetes_manifest(source: &str) -> bool {
+    source.contains("\napiVersion:") && source.contains("\nkind:")
+}
+
+fn parse_kubernetes_resource(buf: &mut GraphBuffer, source: &str, path: &str, project: &str) {
+    let Ok(doc) = serde_yaml::from_str::<serde_yaml::Value>(source) else {
+        return;
+    };
+    let Some(map) = doc.as_mapping() else { return };
+    let kind = map
+        .get(serde_yaml::Value::String("kind".into()))
+        .and_then(yaml_string)
+        .unwrap_or_else(|| "Resource".into());
+    let name = map
+        .get(serde_yaml::Value::String("metadata".into()))
+        .and_then(|v| v.as_mapping())
+        .and_then(|m| m.get(serde_yaml::Value::String("name".into())))
+        .and_then(yaml_string)
+        .unwrap_or_else(|| pipeline_name_from_path(path));
+    add_infra_node(
+        buf,
+        project,
+        "kubernetes",
+        &kind,
+        &name,
+        path,
+        serde_json::json!({}),
+    );
+}
+
+fn is_helm_chart(path: &str, source: &str) -> bool {
+    path.ends_with("Chart.yaml") || (path.contains("/templates/") && source.contains("{{"))
+}
+
+fn helm_name(path: &str) -> String {
+    Path::new(path)
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("chart")
+        .to_owned()
+}
+
+fn parse_hcl_infra(buf: &mut GraphBuffer, source: &str, path: &str, project: &str) {
+    static RESOURCE_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#"(?m)^\s*resource\s+"([^"]+)"\s+"([^"]+)""#).unwrap());
+    for caps in RESOURCE_RE.captures_iter(source) {
+        let resource_type = caps.get(1).map(|m| m.as_str()).unwrap_or("resource");
+        let name = caps.get(2).map(|m| m.as_str()).unwrap_or("resource");
+        add_infra_node(
+            buf,
+            project,
+            "terraform",
+            resource_type,
+            name,
+            path,
+            serde_json::json!({}),
+        );
+    }
+}
+
 /// Pass 3: Resolve call edges using the registry and Aho-Corasick.
 pub fn pass_calls(buf: &mut GraphBuffer, reg: &Registry, files: &[&DiscoveredFile], project: &str) {
     if reg.is_empty() {
@@ -585,6 +916,30 @@ pub fn pass_cross_project_mapping(buf: &mut GraphBuffer, store: &Store, project:
 
 #[cfg(test)]
 mod express_route_tests {
+    use super::*;
+    use codryn_store::{Project, Store};
+
+    fn write_temp_file(
+        name: &str,
+        body: &str,
+        language: Language,
+    ) -> (tempfile::TempDir, DiscoveredFile) {
+        let dir = tempfile::tempdir().unwrap();
+        let abs_path = dir.path().join(name);
+        if let Some(parent) = abs_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&abs_path, body).unwrap();
+        (
+            dir,
+            DiscoveredFile {
+                abs_path,
+                rel_path: name.to_owned(),
+                language,
+            },
+        )
+    }
+
     #[test]
     fn express_regex_compiles_without_backrefs() {
         // Rust `regex` doesn't support backreferences (`\1`, `\2`, ...). This test ensures
@@ -597,5 +952,77 @@ mod express_route_tests {
             r#"(?s)\b(?:fastify|f)\s*\.\s*(get|post|put|patch|delete|all)\s*\(\s*(?:'([^']+)'|"([^"]+)")\s*,\s*(\w+)\s*[,\)]"#,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn ci_pass_indexes_github_actions_pipeline() {
+        let (_dir, file) = write_temp_file(
+            ".github/workflows/ci.yml",
+            r#"
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo build
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo test
+"#,
+            Language::Yaml,
+        );
+        let store = Store::open_in_memory().unwrap();
+        store
+            .upsert_project(&Project {
+                name: "p".into(),
+                indexed_at: "now".into(),
+                root_path: "/tmp".into(),
+            })
+            .unwrap();
+        let mut buf = GraphBuffer::new("p");
+
+        pass_ci_and_infra(&mut buf, &[&file], "p");
+        buf.flush(&store).unwrap();
+
+        assert_eq!(
+            store.get_nodes_by_label("p", "Pipeline", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(store.get_nodes_by_label("p", "Job", 10).unwrap().len(), 2);
+        assert_eq!(store.get_edges_by_type("p", "DEPENDS_ON").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn infra_pass_indexes_docker_and_terraform_resources() {
+        let (_docker_dir, dockerfile) = write_temp_file(
+            "Dockerfile",
+            "FROM rust:1.75 AS build\nFROM debian:bookworm\n",
+            Language::Dockerfile,
+        );
+        let (_tf_dir, terraform) = write_temp_file(
+            "infra/main.tf",
+            r#"resource "aws_instance" "web" {}"#,
+            Language::Hcl,
+        );
+        let store = Store::open_in_memory().unwrap();
+        store
+            .upsert_project(&Project {
+                name: "p".into(),
+                indexed_at: "now".into(),
+                root_path: "/tmp".into(),
+            })
+            .unwrap();
+        let mut buf = GraphBuffer::new("p");
+
+        pass_ci_and_infra(&mut buf, &[&dockerfile, &terraform], "p");
+        buf.flush(&store).unwrap();
+
+        let infra = store.get_nodes_by_label("p", "Infra", 10).unwrap();
+        assert_eq!(infra.len(), 3);
+        assert!(infra.iter().any(|n| n.name == "web"));
+        assert!(infra.iter().any(|n| n.name == "rust:1.75"));
     }
 }

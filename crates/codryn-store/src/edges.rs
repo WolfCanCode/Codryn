@@ -21,6 +21,30 @@ impl crate::Store {
         Ok(self.conn.last_insert_rowid())
     }
 
+    pub fn get_edges_by_type(&self, project: &str, edge_type: &str) -> Result<Vec<Edge>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project, source_id, target_id, type, properties \
+             FROM edges WHERE project = ?1 AND type = ?2",
+        )?;
+        let rows = stmt.query_map(params![project, edge_type], edge_from_row)?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn get_node_by_id(&self, id: i64) -> Result<Option<Node>> {
+        use crate::node_from_row;
+        use rusqlite::OptionalExtension;
+
+        self.conn
+            .query_row(
+                "SELECT id, project, label, name, qualified_name, file_path, \
+                 start_line, end_line, properties FROM nodes WHERE id = ?1",
+                params![id],
+                node_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn get_edges(&self, project: &str, limit: i32) -> Result<Vec<Edge>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, project, source_id, target_id, type, properties FROM edges WHERE project = ?1 LIMIT ?2",

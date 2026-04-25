@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add Codryn-native pipeline and infrastructure service support for CI/CD DAGs and infrastructure resources.
+- Add MCP tools `find_pipelines` and `find_infrastructure`.
+- Add web API endpoints for analytics detail, pipeline DAGs, and infrastructure resources.
+
+### Changed
+
+- Extend analytics records with request and response body fields for detail views while preserving existing summary analytics.
+
 ## [1.1.0] - 2026-04-20
 
 - Initial release
