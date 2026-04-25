@@ -169,6 +169,8 @@ impl crate::Store {
                     input_tokens: r.get(9)?,
                     output_tokens: r.get(10)?,
                     response_bytes: r.get(11)?,
+                    request_body: String::new(),
+                    response_body: String::new(),
                 })
             })?;
             for r in rows.flatten() {
@@ -190,5 +192,33 @@ impl crate::Store {
             estimated_tokens_saved,
             recent,
         })
+    }
+
+    pub fn get_tool_call_detail(&self, id: i64) -> Result<Option<ToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, tool_name, project, source, duration_ms, success, called_at, \
+             agent_name, model_name, input_tokens, output_tokens, response_bytes, \
+             COALESCE(request_body,''), COALESCE(response_body,'') \
+             FROM tool_calls WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], |r| {
+            Ok(ToolCall {
+                id: r.get(0)?,
+                tool_name: r.get(1)?,
+                project: r.get(2)?,
+                source: r.get(3)?,
+                duration_ms: r.get(4)?,
+                success: r.get::<_, i32>(5)? == 1,
+                called_at: r.get(6)?,
+                agent_name: r.get(7)?,
+                model_name: r.get(8)?,
+                input_tokens: r.get(9)?,
+                output_tokens: r.get(10)?,
+                response_bytes: r.get(11)?,
+                request_body: r.get(12)?,
+                response_body: r.get(13)?,
+            })
+        })?;
+        Ok(rows.next().and_then(|r| r.ok()))
     }
 }

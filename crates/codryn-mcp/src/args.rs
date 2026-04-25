@@ -243,3 +243,21 @@ pub struct ExplainIndexResultArgs {
     #[serde(default)]
     pub analytics: Option<AnalyticsMeta>,
 }
+
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+pub struct FindPipelinesArgs {
+    #[schemars(description = "Project name")]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub analytics: Option<AnalyticsMeta>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+pub struct FindInfrastructureArgs {
+    #[schemars(description = "Project name")]
+    pub project: Option<String>,
+    #[schemars(description = "Filter by infrastructure type: terraform, kubernetes, docker, helm")]
+    pub infra_type: Option<String>,
+    #[serde(default)]
+    pub analytics: Option<AnalyticsMeta>,
+}

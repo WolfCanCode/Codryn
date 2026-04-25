@@ -326,6 +326,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tempfile",
  "tracing",
  "tree-sitter",
  "tree-sitter-java",

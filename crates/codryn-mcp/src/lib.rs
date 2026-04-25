@@ -11,6 +11,7 @@ use codryn_services::architecture::ArchitectureService;
 use codryn_services::backend_flow::BackendFlowService;
 use codryn_services::flow::FlowAnalysisService;
 use codryn_services::navigation::NavigationService;
+use codryn_services::pipeline::PipelineService;
 use codryn_services::project_linking::ProjectLinkingService;
 use codryn_services::test_discovery::TestDiscoveryService;
 use codryn_store::Store;
@@ -1538,6 +1539,62 @@ impl CodrynServer {
             Err(e) => json!({"error": e.to_string()}).to_string(),
         };
         self.analytics_log(&ctx, "trace_backend_flow", &project, start, &result);
+        result
+    }
+
+    #[tool(description = "Find CI/CD pipelines in a project with stages, jobs, and dependencies")]
+    async fn find_pipelines(
+        &self,
+        Parameters(args): Parameters<FindPipelinesArgs>,
+        meta: rmcp::model::Meta,
+    ) -> String {
+        let start = Instant::now();
+        let ctx = Self::extract_ctx(&meta, args.analytics.as_ref());
+        let project = self.resolve_project(args.project.as_deref()).await;
+        let result = match self.get_store().await {
+            Ok(store) => match PipelineService::list_pipelines(&store, &project) {
+                Ok(pipelines) => {
+                    let count = pipelines.len();
+                    json!({ "project": project, "pipelines": pipelines, "count": count })
+                        .to_string()
+                }
+                Err(e) => json!({ "error": e.to_string() }).to_string(),
+            },
+            Err(e) => json!({ "error": e.to_string() }).to_string(),
+        };
+        self.analytics_log(&ctx, "find_pipelines", &project, start, &result);
+        result
+    }
+
+    #[tool(
+        description = "Find infrastructure resources (Terraform, Kubernetes, Docker, Helm) in a project"
+    )]
+    async fn find_infrastructure(
+        &self,
+        Parameters(args): Parameters<FindInfrastructureArgs>,
+        meta: rmcp::model::Meta,
+    ) -> String {
+        let start = Instant::now();
+        let ctx = Self::extract_ctx(&meta, args.analytics.as_ref());
+        let project = self.resolve_project(args.project.as_deref()).await;
+        let result = match self.get_store().await {
+            Ok(store) => {
+                match PipelineService::list_infrastructure(
+                    &store,
+                    &project,
+                    args.infra_type.as_deref(),
+                ) {
+                    Ok(resources) => {
+                        let count = resources.len();
+                        json!({ "project": project, "resources": resources, "count": count })
+                            .to_string()
+                    }
+                    Err(e) => json!({ "error": e.to_string() }).to_string(),
+                }
+            }
+            Err(e) => json!({ "error": e.to_string() }).to_string(),
+        };
+        self.analytics_log(&ctx, "find_infrastructure", &project, start, &result);
         result
     }
 }

@@ -69,6 +69,10 @@ pub struct ToolCall {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub response_bytes: i64,
+    #[serde(default)]
+    pub request_body: String,
+    #[serde(default)]
+    pub response_body: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

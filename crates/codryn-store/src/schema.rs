@@ -90,6 +90,8 @@ pub fn migrate_tool_calls(conn: &rusqlite::Connection) {
         "ALTER TABLE tool_calls ADD COLUMN output_tokens INTEGER DEFAULT 0",
         "ALTER TABLE tool_calls ADD COLUMN response_bytes INTEGER DEFAULT 0",
         "ALTER TABLE file_hashes ADD COLUMN is_deleted INTEGER DEFAULT 0",
+        "ALTER TABLE tool_calls ADD COLUMN request_body TEXT DEFAULT ''",
+        "ALTER TABLE tool_calls ADD COLUMN response_body TEXT DEFAULT ''",
     ];
     for sql in &migrations {
         let _ = conn.execute_batch(sql); // ignore "duplicate column" errors

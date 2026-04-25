@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, X } from 'lucide-react';
 import type { Analytics, ToolCount, ToolCall } from '@/lib/types';
+import { fetchAnalyticsDetail } from '@/lib/rpc';
 
 const TOOL_COLORS: Record<string, string> = {
   list_projects: '#f9a825', get_graph_schema: '#00838f', index_repository: '#388e3c',
@@ -38,8 +39,27 @@ const tokenDisplay = (c: ToolCall): string => {
 
 const clr = (name: string): string => TOOL_COLORS[name] ?? '#78909c';
 
+function JsonPreview({ value }: { value?: string }) {
+  if (!value) return <p className="text-xs text-zinc-500">No body recorded</p>;
+  try {
+    return (
+      <pre className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">
+        {JSON.stringify(JSON.parse(value), null, 2)}
+      </pre>
+    );
+  } catch {
+    return (
+      <pre className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">
+        {value}
+      </pre>
+    );
+  }
+}
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
+  const [selected, setSelected] = useState<ToolCall | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = () => {
     setData(null);
@@ -69,6 +89,19 @@ export default function AnalyticsPage() {
     if (!data || !data.estimated_tokens_without_tools) return 0;
     return Math.round((data.estimated_tokens_saved / data.estimated_tokens_without_tools) * 100);
   }, [data]);
+
+  const showDetail = async (call: ToolCall) => {
+    setSelected(call);
+    setDetailLoading(true);
+    try {
+      const detail = await fetchAnalyticsDetail(call.id);
+      setSelected(detail);
+    } catch {
+      setSelected(call);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   return (
     <div className="w-full max-w-6xl space-y-6 p-6 text-left">
@@ -156,7 +189,7 @@ export default function AnalyticsPage() {
                 </TableHeader>
                 <TableBody>
                   {recent.map((c: ToolCall, i: number) => (
-                    <TableRow key={i} className="text-xs">
+                    <TableRow key={i} className="text-xs cursor-pointer hover:bg-zinc-50" onClick={() => showDetail(c)}>
                       <TableCell className="font-medium">
                         <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: clr(c.tool_name) }} />
                         {c.tool_name}
@@ -175,6 +208,34 @@ export default function AnalyticsPage() {
               </Table>
             </div>
           </div>
+
+          {selected && (
+            <div className="fixed inset-y-0 right-0 z-40 w-full max-w-2xl border-l border-zinc-200 bg-white shadow-xl">
+              <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold text-zinc-900">{selected.tool_name}</div>
+                  <div className="truncate text-xs text-zinc-500">{selected.project || 'No project'} · {fmtT(selected.called_at)}</div>
+                </div>
+                {detailLoading && <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
+                <Button variant="ghost" size="icon-sm" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button>
+              </div>
+              <div className="h-[calc(100vh-57px)] space-y-4 overflow-auto p-4">
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div><div className="text-zinc-500">Agent</div><div className="font-medium">{selected.agent_name || 'unknown'}</div></div>
+                  <div><div className="text-zinc-500">Model</div><div className="font-medium">{selected.model_name || 'unknown'}</div></div>
+                  <div><div className="text-zinc-500">Duration</div><div className="font-medium">{selected.duration_ms}ms</div></div>
+                </div>
+                <section className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Request</h3>
+                  <JsonPreview value={selected.request_body} />
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Response</h3>
+                  <JsonPreview value={selected.response_body} />
+                </section>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
