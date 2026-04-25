@@ -94,7 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Apply `cargo fmt` formatting (`e5677b3`)
 
-[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/WolfCanCode/Codryn/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/WolfCanCode/Codryn/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/WolfCanCode/Codryn/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/WolfCanCode/Codryn/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/WolfCanCode/Codryn/compare/v1.1.0...v1.2.0

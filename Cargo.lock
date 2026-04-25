@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-bin"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-cli",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-cli"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-foundation",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-cypher"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-store",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-discover"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-foundation",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-foundation"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-graph-buffer"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-store",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-mcp"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-pipeline"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-services"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-discover",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-store"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-treesitter"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "codryn-discover",
  "tracing",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-ui"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "codryn-watcher"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "codryn-pipeline",
