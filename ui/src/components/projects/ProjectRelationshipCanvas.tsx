@@ -394,6 +394,7 @@ export function ProjectRelationshipCanvas({
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [draggingProject, setDraggingProject] = useState<string | null>(null)
   const [pendingLink, setPendingLink] = useState<{ source: string; side: Side; pointerWorld: Point } | null>(null)
   const [linkBusy, setLinkBusy] = useState(false)
   const [nodePositions, setNodePositions] = useState<Record<string, Point>>({})
@@ -456,7 +457,8 @@ export function ProjectRelationshipCanvas({
 
   useEffect(() => {
     didAutoFitRef.current = false
-    setNodePositions({})
+    const t = window.setTimeout(() => setNodePositions({}), 0)
+    return () => window.clearTimeout(t)
   }, [layoutKey])
 
   useEffect(() => {
@@ -471,6 +473,7 @@ export function ProjectRelationshipCanvas({
       panStateRef.current = null
       setPendingLink(null)
       nodeDragRef.current = null
+      setDraggingProject(null)
     }
     window.addEventListener('pointerup', handlePointerUp)
     return () => window.removeEventListener('pointerup', handlePointerUp)
@@ -621,6 +624,7 @@ export function ProjectRelationshipCanvas({
     event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
     const pointerWorld = toWorld(event.clientX, event.clientY)
+    setDraggingProject(node.entry.project.name)
     nodeDragRef.current = {
       pointerId: event.pointerId,
       projectName: node.entry.project.name,
@@ -750,7 +754,7 @@ export function ProjectRelationshipCanvas({
                     'relative h-full cursor-grab select-none rounded-[18px] border border-slate-200 bg-white px-4 py-3 shadow-sm',
                     'transition-[transform,box-shadow,border-color] duration-200',
                     'group-hover:-translate-y-0.5 group-hover:border-sky-200 group-hover:shadow-md',
-                    nodeDragRef.current?.projectName === node.entry.project.name ? 'cursor-grabbing' : '',
+                    draggingProject === node.entry.project.name ? 'cursor-grabbing' : '',
                   )}
                   data-pan-stop="true"
                 >

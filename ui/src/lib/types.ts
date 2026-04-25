@@ -29,6 +29,7 @@ export interface Analytics {
   recent: ToolCall[];
 }
 export interface PipelineDag {
+  source_project?: string;
   pipeline: PipelineInfo;
   stages: StageInfo[];
   jobs: JobInfo[];
@@ -56,6 +57,7 @@ export interface DagEdge {
   edge_type: string;
 }
 export interface InfraResource {
+  source_project?: string;
   name: string;
   resource_type: string;
   kind: string;

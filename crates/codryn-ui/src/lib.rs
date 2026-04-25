@@ -963,6 +963,8 @@ async fn handle_languages(state: Arc<AppState>, Query(q): Query<LangQuery>) -> J
 struct PipelinesQuery {
     project: String,
     name: Option<String>,
+    include_linked: Option<bool>,
+    source_project: Option<String>,
 }
 
 async fn handle_pipelines(state: Arc<AppState>, Query(q): Query<PipelinesQuery>) -> Json<Value> {
@@ -971,16 +973,84 @@ async fn handle_pipelines(state: Arc<AppState>, Query(q): Query<PipelinesQuery>)
         Err(e) => return Json(json!({ "error": e.to_string() })),
     };
 
+    let include_linked = q.include_linked.unwrap_or(true);
+
     if let Some(pipeline_name) = &q.name {
-        match PipelineService::get_pipeline_dag(&store, &q.project, pipeline_name) {
-            Ok(dag) => Json(json!(dag)),
-            Err(e) => Json(json!({ "error": e.to_string() })),
+        // Resolve pipeline dag deterministically:
+        // 1) explicit source_project if provided
+        // 2) local project
+        // 3) linked projects (if include_linked=true)
+        if let Some(src_project) = q.source_project.as_deref() {
+            return match PipelineService::get_pipeline_dag(&store, src_project, pipeline_name) {
+                Ok(dag) => {
+                    let mut v = serde_json::to_value(&dag).unwrap_or(json!({}));
+                    if let Value::Object(map) = &mut v {
+                        map.insert("source_project".into(), json!(src_project));
+                    }
+                    Json(v)
+                }
+                Err(e) => Json(json!({ "error": e.to_string() })),
+            };
         }
+
+        if let Ok(dag) = PipelineService::get_pipeline_dag(&store, &q.project, pipeline_name) {
+            let mut v = serde_json::to_value(&dag).unwrap_or(json!({}));
+            if let Value::Object(map) = &mut v {
+                map.insert("source_project".into(), json!(q.project));
+            }
+            return Json(v);
+        }
+
+        if include_linked {
+            let links = store.get_linked_projects(&q.project).unwrap_or_default();
+            for link in links {
+                if let Ok(dag) =
+                    PipelineService::get_pipeline_dag(&store, &link.target_project, pipeline_name)
+                {
+                    let mut v = serde_json::to_value(&dag).unwrap_or(json!({}));
+                    if let Value::Object(map) = &mut v {
+                        map.insert("source_project".into(), json!(link.target_project));
+                    }
+                    return Json(v);
+                }
+            }
+        }
+
+        Json(json!({ "error": format!("Pipeline '{}' not found", pipeline_name) }))
     } else {
-        match PipelineService::list_pipelines(&store, &q.project) {
-            Ok(pipelines) => Json(json!({ "pipelines": pipelines, "count": pipelines.len() })),
-            Err(e) => Json(json!({ "error": e.to_string() })),
+        // Merge pipelines from local project + linked projects (optional)
+        let mut merged: Vec<Value> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let mut collect = |project: &str| {
+            if let Ok(pipelines) = PipelineService::list_pipelines(&store, project) {
+                for p in pipelines {
+                    // Stable de-dupe key across projects
+                    let key = format!(
+                        "{}\u{0}{}\u{0}{}",
+                        p.pipeline.ci_system, p.pipeline.file_path, p.pipeline.name
+                    );
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    let mut v = serde_json::to_value(&p).unwrap_or(json!({}));
+                    if let Value::Object(map) = &mut v {
+                        map.insert("source_project".into(), json!(project));
+                    }
+                    merged.push(v);
+                }
+            }
+        };
+
+        collect(&q.project);
+        if include_linked {
+            let links = store.get_linked_projects(&q.project).unwrap_or_default();
+            for link in links {
+                collect(&link.target_project);
+            }
         }
+
+        Json(json!({ "pipelines": merged, "count": merged.len() }))
     }
 }
 
@@ -989,6 +1059,7 @@ struct InfrastructureQuery {
     project: String,
     #[serde(rename = "type")]
     infra_type: Option<String>,
+    include_linked: Option<bool>,
 }
 
 async fn handle_infrastructure(
@@ -1000,10 +1071,43 @@ async fn handle_infrastructure(
         Err(e) => return Json(json!({ "error": e.to_string() })),
     };
 
-    match PipelineService::list_infrastructure(&store, &q.project, q.infra_type.as_deref()) {
-        Ok(resources) => Json(json!({ "resources": resources, "count": resources.len() })),
-        Err(e) => Json(json!({ "error": e.to_string() })),
+    let include_linked = q.include_linked.unwrap_or(true);
+
+    // Merge infra resources from local project + linked projects (optional).
+    // We preserve the existing `type=` filter.
+    let mut merged: Vec<Value> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut collect = |project: &str| {
+        if let Ok(resources) =
+            PipelineService::list_infrastructure(&store, project, q.infra_type.as_deref())
+        {
+            for r in resources {
+                let key = format!(
+                    "{}\u{0}{}\u{0}{}\u{0}{}",
+                    r.kind, r.resource_type, r.file_path, r.name
+                );
+                if !seen.insert(key) {
+                    continue;
+                }
+                let mut v = serde_json::to_value(&r).unwrap_or(json!({}));
+                if let Value::Object(map) = &mut v {
+                    map.insert("source_project".into(), json!(project));
+                }
+                merged.push(v);
+            }
+        }
+    };
+
+    collect(&q.project);
+    if include_linked {
+        let links = store.get_linked_projects(&q.project).unwrap_or_default();
+        for link in links {
+            collect(&link.target_project);
+        }
     }
+
+    Json(json!({ "resources": merged, "count": merged.len() }))
 }
 
 fn open_store(path: &Path) -> Result<Store> {

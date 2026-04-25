@@ -150,3 +150,8 @@ html, body {
     @apply font-sans;
   }
 }
+
+@keyframes shimmer {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(140%); }
+}

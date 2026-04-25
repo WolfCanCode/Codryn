@@ -1,4 +1,10 @@
 import type { InfraResource, PipelineDag, ToolCall } from './types';
+import type {
+  BackendFlowListResponse,
+  BackendFlowResponse,
+  FrontendFlowListResponse,
+  FrontendFlowResponse,
+} from '@/components/flow/flowTypes';
 
 let nextId = 1;
 
@@ -25,40 +31,63 @@ export async function fetchLayout(project: string, maxNodes = 5000) {
   return res.json();
 }
 
-export async function fetchRoutes(project: string) {
+export async function fetchBackendFlowList(project: string): Promise<BackendFlowListResponse> {
   const res = await fetch(`/api/backend-flow?project=${encodeURIComponent(project)}&list=true`);
   return res.json();
 }
 
-export async function fetchBackendFlow(project: string, routePath: string, httpMethod?: string) {
+export async function fetchFrontendFlowList(project: string): Promise<FrontendFlowListResponse> {
+  const res = await fetch(`/api/frontend-flow?project=${encodeURIComponent(project)}&list=true`);
+  return res.json();
+}
+
+export async function fetchBackendFlowGraph(
+  project: string,
+  routePath: string,
+  httpMethod?: string,
+): Promise<BackendFlowResponse> {
   let url = `/api/backend-flow?project=${encodeURIComponent(project)}&route_path=${encodeURIComponent(routePath)}`;
   if (httpMethod) url += `&http_method=${encodeURIComponent(httpMethod)}`;
   const res = await fetch(url);
   return res.json();
 }
 
-export async function fetchComponents(project: string) {
-  const res = await fetch(`/api/frontend-flow?project=${encodeURIComponent(project)}&list=true`);
-  return res.json();
-}
-
-export async function fetchFrontendFlow(project: string, component: string) {
+export async function fetchFrontendFlowGraph(project: string, component: string): Promise<FrontendFlowResponse> {
   const res = await fetch(`/api/frontend-flow?project=${encodeURIComponent(project)}&component=${encodeURIComponent(component)}`);
   return res.json();
 }
 
-export async function fetchPipelines(project: string): Promise<{ pipelines: PipelineDag[]; count: number }> {
-  const res = await fetch(`/api/pipelines?project=${encodeURIComponent(project)}`);
+// Back-compat for older callers
+export async function fetchRoutes(project: string) {
+  return fetchBackendFlowList(project);
+}
+
+export async function fetchBackendFlow(project: string, routePath: string, httpMethod?: string) {
+  return fetchBackendFlowGraph(project, routePath, httpMethod);
+}
+
+export async function fetchComponents(project: string) {
+  return fetchFrontendFlowList(project);
+}
+
+export async function fetchFrontendFlow(project: string, component: string) {
+  return fetchFrontendFlowGraph(project, component);
+}
+
+export async function fetchPipelines(project: string, includeLinked = true): Promise<{ pipelines: PipelineDag[]; count: number }> {
+  const res = await fetch(`/api/pipelines?project=${encodeURIComponent(project)}&include_linked=${includeLinked ? 'true' : 'false'}`);
   return res.json();
 }
 
-export async function fetchPipelineDag(project: string, name: string): Promise<PipelineDag> {
-  const res = await fetch(`/api/pipelines?project=${encodeURIComponent(project)}&name=${encodeURIComponent(name)}`);
+export async function fetchPipelineDag(project: string, name: string, sourceProject?: string, includeLinked = true): Promise<PipelineDag> {
+  let url = `/api/pipelines?project=${encodeURIComponent(project)}&name=${encodeURIComponent(name)}&include_linked=${includeLinked ? 'true' : 'false'}`;
+  if (sourceProject) url += `&source_project=${encodeURIComponent(sourceProject)}`;
+  const res = await fetch(url);
   return res.json();
 }
 
-export async function fetchInfrastructure(project: string, type?: string): Promise<{ resources: InfraResource[]; count: number }> {
-  let url = `/api/infrastructure?project=${encodeURIComponent(project)}`;
+export async function fetchInfrastructure(project: string, type?: string, includeLinked = true): Promise<{ resources: InfraResource[]; count: number }> {
+  let url = `/api/infrastructure?project=${encodeURIComponent(project)}&include_linked=${includeLinked ? 'true' : 'false'}`;
   if (type) url += `&type=${encodeURIComponent(type)}`;
   const res = await fetch(url);
   return res.json();

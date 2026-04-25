@@ -41,19 +41,17 @@ const clr = (name: string): string => TOOL_COLORS[name] ?? '#78909c';
 
 function JsonPreview({ value }: { value?: string }) {
   if (!value) return <p className="text-xs text-zinc-500">No body recorded</p>;
+  let formatted = value;
   try {
-    return (
-      <pre className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">
-        {JSON.stringify(JSON.parse(value), null, 2)}
-      </pre>
-    );
+    formatted = JSON.stringify(JSON.parse(value), null, 2);
   } catch {
-    return (
-      <pre className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">
-        {value}
-      </pre>
-    );
+    // Not JSON; show raw.
   }
+  return (
+    <pre className="max-h-64 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-100">
+      {formatted}
+    </pre>
+  );
 }
 
 export default function AnalyticsPage() {
@@ -61,12 +59,25 @@ export default function AnalyticsPage() {
   const [selected, setSelected] = useState<ToolCall | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/analytics')
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const load = () => {
     setData(null);
     fetch('/api/analytics').then(r => r.json()).then(setData);
   };
-
-  useEffect(load, []);
 
   const tools = useMemo(() =>
     data?.per_tool.filter((t: ToolCount) => t.mcp_count > 0).sort((a: ToolCount, b: ToolCount) => b.mcp_count - a.mcp_count) ?? [],

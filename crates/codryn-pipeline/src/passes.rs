@@ -5107,12 +5107,140 @@ pub fn pass_iac(buf: &mut GraphBuffer, files: &[&DiscoveredFile], project: &str)
             return;
         }
 
+        // CDK: treat any cdk.json as an infra entrypoint even if language detection
+        // doesn't classify it as JSON.
+        if f.rel_path.ends_with("cdk.json") {
+            let parent = Path::new(&f.rel_path)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("cdk");
+            let qn = format!("{}.cdk.app.{}", project, parent);
+            let props = serde_json::json!({
+                "infra_type": "cdk",
+                "resource_type": "app_manifest",
+                "resource_name": parent,
+            });
+            buf.add_node(
+                "Infra",
+                parent,
+                &qn,
+                &f.rel_path,
+                0,
+                0,
+                Some(props.to_string()),
+            );
+        }
+
         match f.language {
             Language::Hcl => {
                 parse_terraform(buf, f, project);
             }
             Language::Yaml if is_helm_chart_yaml(&f.rel_path) => {
                 parse_helm_chart(buf, f, project);
+            }
+            Language::Yaml => {
+                // Pulumi: Pulumi.yaml / Pulumi.<stack>.yaml / Pulumi.<stack>.yml
+                let filename = f.rel_path.rsplit('/').next().unwrap_or(&f.rel_path);
+                if filename.starts_with("Pulumi.")
+                    || filename == "Pulumi.yaml"
+                    || filename == "Pulumi.yml"
+                {
+                    let stem = Path::new(filename)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Pulumi");
+                    let qn = format!("{}.pulumi.{}", project, stem);
+                    let props = serde_json::json!({
+                        "infra_type": "pulumi",
+                        "resource_type": "stack_config",
+                        "resource_name": stem,
+                    });
+                    buf.add_node(
+                        "Infra",
+                        stem,
+                        &qn,
+                        &f.rel_path,
+                        0,
+                        0,
+                        Some(props.to_string()),
+                    );
+                }
+
+                // CloudFormation/SAM: common template names
+                if filename == "template.yaml"
+                    || filename == "template.yml"
+                    || filename.ends_with(".template.yaml")
+                    || filename.ends_with(".template.yml")
+                {
+                    let stem = Path::new(filename)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("template");
+                    let source = std::fs::read_to_string(&f.abs_path)
+                        .ok()
+                        .unwrap_or_default();
+                    let (resource_count, sample) =
+                        serde_yaml::from_str::<serde_yaml::Value>(&source)
+                            .ok()
+                            .and_then(|doc| doc.as_mapping().cloned())
+                            .and_then(|m| {
+                                let resources = m
+                                    .get(serde_yaml::Value::String("Resources".into()))?
+                                    .as_mapping()?;
+                                let mut names: Vec<String> = resources
+                                    .keys()
+                                    .filter_map(|k| k.as_str().map(|s| s.to_owned()))
+                                    .collect();
+                                names.sort();
+                                let sample = names.iter().take(5).cloned().collect::<Vec<_>>();
+                                Some((names.len(), sample))
+                            })
+                            .unwrap_or((0usize, Vec::new()));
+
+                    let qn = format!("{}.cloudformation.{}", project, stem);
+                    let props = serde_json::json!({
+                        "infra_type": "cloudformation",
+                        "resource_type": "template",
+                        "resource_name": stem,
+                        "resource_count": resource_count,
+                        "resource_sample": sample,
+                    });
+                    buf.add_node(
+                        "Infra",
+                        stem,
+                        &qn,
+                        &f.rel_path,
+                        0,
+                        0,
+                        Some(props.to_string()),
+                    );
+                }
+            }
+            Language::TypeScript | Language::Python => {
+                // CDK stack conventions: *Stack.ts / *Stack.py
+                let filename = f.rel_path.rsplit('/').next().unwrap_or(&f.rel_path);
+                if filename.ends_with("Stack.ts") || filename.ends_with("Stack.py") {
+                    let stem = Path::new(filename)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Stack");
+                    let qn = format!("{}.cdk.stack.{}", project, stem);
+                    let props = serde_json::json!({
+                        "infra_type": "cdk",
+                        "resource_type": "stack",
+                        "resource_name": stem,
+                    });
+                    buf.add_node(
+                        "Infra",
+                        stem,
+                        &qn,
+                        &f.rel_path,
+                        0,
+                        0,
+                        Some(props.to_string()),
+                    );
+                }
             }
             _ => {}
         }

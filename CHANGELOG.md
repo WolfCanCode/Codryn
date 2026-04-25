@@ -5,7 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0]
+
+### Added
+
+- Add Flow-first "Graph" experience with a Sankey-based flow explorer (backend routes and UI component anchors), plus one-click onboarding Markdown extraction.
+- Add Canvas-based Architecture graph renderer (pan/zoom, hover/click selection, minimap, and node detail popup) backed by an incremental, cancellable `d3-force` layout for better performance on large graphs.
+- Add smoother interaction transitions to shared UI primitives (buttons, tabs, selects, inputs, badges, navigation menu), respecting `prefers-reduced-motion`.
+- Add broader infra detection for AWS CDK, Pulumi, and CloudFormation/SAM templates.
+
+### Changed
+
+- Replace Sigma-based architecture rendering with Canvas + `d3-force` to reduce lag, prevent DOM bleed-through between tabs, and make layout bounded/non-blocking.
+- Improve default graph readability (larger nodes/labels, stronger edges, black edges, black node outlines) and selection UX (highlight incident links + callers/callees, fade the rest until unselected).
+- Add a skeleton-style loading overlay during layout to avoid flashing and make the graph feel responsive while computing.
+
+### Fixed
+
+- Fix CI/Infra recognition in monorepos by supporting aggregation via linked projects (`include_linked`) and ensuring `.github/workflows` and other pipeline/IaC locations are discoverable across repo roots.
+- Fix duplicate method display in route anchors and ensure unique keys for UI anchors to prevent incorrect selection/highlighting.
+- Fix initial centering/fit-to-bounds and minimap viewport mismatch by making canvas rendering DPR-correct.
+- Fix UI lint/type issues uncovered by CI (Config/Analytics pages and relationship canvas) and ensure Rust formatting is clean (`cargo fmt`).
 
 ## [1.4.0] - 2026-04-25
 

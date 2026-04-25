@@ -40,6 +40,12 @@ interface Storage {
   binary_human: string;
 }
 
+type ToolError = { error?: string };
+type ListProjectsResult = { projects?: Array<{ name?: string; project?: string }> } & ToolError;
+type GraphSchemaResult = { total_nodes?: number; total_edges?: number } & ToolError;
+type IndexRepositoryResult = { project?: string; error?: string };
+type BrowseResult = { error?: string; path?: string; parent?: string; dirs?: string[] };
+
 const TEMPLATES: Record<string, string> = {
   'All functions': 'MATCH (f:Function) RETURN f.name, f.file_path LIMIT 20',
   'Call chains': 'MATCH (a:Function)-[:CALLS]->(b:Function) RETURN a.name, b.name LIMIT 30',
@@ -73,7 +79,7 @@ export default function ConfigPage() {
   const [cypherQuery, setCypherQuery] = useState('');
   const [cypherProject, setCypherProject] = useState('');
   const [querying, setQuerying] = useState(false);
-  const [queryResult, setQueryResult] = useState<any>(null);
+  const [queryResult, setQueryResult] = useState<unknown>(null);
 
   const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([]);
   const [projectNames, setProjectNames] = useState<string[]>([]);
@@ -89,20 +95,22 @@ export default function ConfigPage() {
     try {
       const res = await fetch('/api/doctor');
       setDoctor(await res.json());
-    } catch {}
+    } catch {
+      setDoctor(null);
+    }
   }
 
   async function refreshStatus() {
     try {
-      const result = await callTool<{ projects: any[] }>('list_projects', {});
+      const result = await callTool<ListProjectsResult>('list_projects', {});
       const projects = result?.projects ?? [];
-      const names: string[] = projects.map((p: any) => p.name ?? p.project);
+      const names: string[] = projects.map((p) => p.name ?? p.project).filter((n): n is string => Boolean(n));
       setProjectNames(names);
 
       const statuses: ProjectStatus[] = [];
       for (const name of names) {
         try {
-          const schema = await callTool<any>('get_graph_schema', { project: name });
+          const schema = await callTool<GraphSchemaResult>('get_graph_schema', { project: name });
           statuses.push({
             project: name,
             total_nodes: schema?.total_nodes ?? 0,
@@ -114,12 +122,18 @@ export default function ConfigPage() {
       }
       setProjectStatuses(statuses);
       setStatusLoaded(true);
-    } catch {}
+    } catch {
+      setProjectStatuses([]);
+      setProjectNames([]);
+      setStatusLoaded(true);
+    }
 
     try {
       const res = await fetch('/api/storage');
       setStorage(await res.json());
-    } catch {}
+    } catch {
+      setStorage(null);
+    }
   }
 
   async function handleInstall() {
@@ -130,8 +144,9 @@ export default function ConfigPage() {
       const data = await res.json();
       setInstallResult(res.ok ? { message: data.message ?? 'Installed' } : { error: data.error ?? 'Failed' });
       loadDoctor();
-    } catch (e: any) {
-      setInstallResult({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setInstallResult({ error: msg });
     } finally {
       setInstalling(false);
     }
@@ -145,8 +160,9 @@ export default function ConfigPage() {
       const data = await res.json();
       setInstallResult(res.ok ? { message: data.message ?? 'Uninstalled' } : { error: data.error ?? 'Failed' });
       loadDoctor();
-    } catch (e: any) {
-      setInstallResult({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setInstallResult({ error: msg });
     } finally {
       setUninstalling(false);
     }
@@ -162,13 +178,15 @@ export default function ConfigPage() {
     try {
       const q = path ? `?path=${encodeURIComponent(path)}` : '';
       const res = await fetch(`/api/browse${q}`);
-      const data = await res.json();
+      const data = (await res.json()) as BrowseResult;
       if (data.error) return;
-      setBrowsePath(data.path);
+      setBrowsePath(data.path ?? '');
       setBrowseParent(data.parent ?? '');
       setBrowseDirs(data.dirs ?? []);
       setBrowseOpen(true);
-    } catch {}
+    } catch {
+      setBrowseOpen(false);
+    }
   }
 
   /** Open a row: API returns full paths; if we only have a label, join with current browse path. */
@@ -183,11 +201,12 @@ export default function ConfigPage() {
     setIndexing(true);
     setIndexResult(null);
     try {
-      const result = await callTool<any>('index_repository', { path: repoPath });
+      const result = await callTool<IndexRepositoryResult>('index_repository', { path: repoPath });
       setIndexResult(result?.error ? { error: result.error } : { project: result?.project ?? repoPath });
       refreshStatus();
-    } catch (e: any) {
-      setIndexResult({ error: e.message });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setIndexResult({ error: msg });
     } finally {
       setIndexing(false);
     }
@@ -197,11 +216,12 @@ export default function ConfigPage() {
     setQuerying(true);
     setQueryResult(null);
     try {
-      const args: any = { query: cypherQuery };
+      const args: { query: string; project?: string } = { query: cypherQuery };
       if (cypherProject) args.project = cypherProject;
-      setQueryResult(await callTool<any>('query_graph', args));
-    } catch (e: any) {
-      setQueryResult({ error: e.message });
+      setQueryResult(await callTool<unknown>('query_graph', args));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setQueryResult({ error: msg });
     } finally {
       setQuerying(false);
     }
@@ -292,6 +312,12 @@ export default function ConfigPage() {
           <AccordionTrigger>Index Repository</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-3">
+              <Alert>
+                <AlertDescription>
+                  For monorepos, index the <strong>repo root</strong> (the folder that contains <code>.github/</code>) so CI and shared infra files are recognized.
+                  You can still index sub-projects too, then link them from the Projects page to view CI/Infra across projects.
+                </AlertDescription>
+              </Alert>
               <div className="flex gap-2">
                 <Input
                   placeholder="Repository path (e.g. /home/user/project)"
@@ -418,13 +444,13 @@ Edges: CALLS, IMPORTS, INHERITS, IMPLEMENTS, CONTAINS, USES, HANDLES_ROUTE, REND
                 </Button>
               </div>
 
-              {queryResult && (
+              {queryResult != null ? (
                 <Card className="p-3">
                   <pre className="text-xs overflow-auto max-h-64 whitespace-pre-wrap">
                     {JSON.stringify(queryResult, null, 2)}
                   </pre>
                 </Card>
-              )}
+              ) : null}
             </div>
           </AccordionContent>
         </AccordionItem>
