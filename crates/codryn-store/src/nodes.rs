@@ -290,6 +290,58 @@ impl crate::Store {
         Ok(())
     }
 
+    /// Compute fan-in and fan-out for all nodes in a project in two bulk queries.
+    /// Returns a map of node_id -> (fan_in, fan_out).
+    pub fn node_degrees_bulk(
+        &self,
+        project: &str,
+    ) -> Result<std::collections::HashMap<i64, (i32, i32)>> {
+        let mut degrees: std::collections::HashMap<i64, (i32, i32)> =
+            std::collections::HashMap::new();
+
+        // Fan-in: count incoming edges per target_id
+        let mut stmt = self.conn.prepare(
+            "SELECT target_id, COUNT(*) FROM edges WHERE project = ?1 GROUP BY target_id",
+        )?;
+        let rows = stmt.query_map(params![project], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i32>(1)?))
+        })?;
+        for row in rows {
+            let (id, count) = row?;
+            degrees.entry(id).or_insert((0, 0)).0 = count;
+        }
+
+        // Fan-out: count outgoing edges per source_id
+        let mut stmt = self.conn.prepare(
+            "SELECT source_id, COUNT(*) FROM edges WHERE project = ?1 GROUP BY source_id",
+        )?;
+        let rows = stmt.query_map(params![project], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i32>(1)?))
+        })?;
+        for row in rows {
+            let (id, count) = row?;
+            degrees.entry(id).or_insert((0, 0)).1 = count;
+        }
+
+        Ok(degrees)
+    }
+
+    /// Batch update properties for multiple nodes in a single transaction.
+    pub fn update_node_properties_batch(&self, updates: &[(i64, String)]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare("UPDATE nodes SET properties = ?1 WHERE id = ?2")?;
+            for (node_id, properties) in updates {
+                stmt.execute(params![properties, node_id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn find_nodes_by_name(&self, project: &str, name: &str, limit: i32) -> Result<Vec<Node>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, project, label, name, qualified_name, file_path, start_line, end_line, properties \

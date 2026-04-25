@@ -72,6 +72,8 @@ impl AnalyticsService {
                 input_tokens,
                 output_tokens,
                 response_bytes,
+                "",
+                result,
             );
         }
     }

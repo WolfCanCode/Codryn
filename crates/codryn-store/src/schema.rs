@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS tool_calls (\
 CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(\
   project, qualified_name, content,\
   tokenize='porter unicode61'\
+);\
+CREATE TABLE IF NOT EXISTS code_blobs (\
+  project TEXT NOT NULL,\
+  qualified_name TEXT NOT NULL,\
+  content BLOB NOT NULL,\
+  is_compressed INTEGER NOT NULL DEFAULT 0,\
+  PRIMARY KEY (project, qualified_name)\
 );";
 
 pub const INDEXES: &str = "\
@@ -77,7 +84,10 @@ CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id, type);\
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id, type);\
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(project, type);\
 CREATE INDEX IF NOT EXISTS idx_edges_target_type ON edges(project, target_id, type);\
-CREATE INDEX IF NOT EXISTS idx_edges_source_type ON edges(project, source_id, type);";
+CREATE INDEX IF NOT EXISTS idx_edges_source_type ON edges(project, source_id, type);\
+CREATE INDEX IF NOT EXISTS idx_nodes_properties_test ON nodes(project, json_extract(properties, '$.is_test'));\
+CREATE INDEX IF NOT EXISTS idx_nodes_properties_exported ON nodes(project, json_extract(properties, '$.is_exported'));\
+CREATE INDEX IF NOT EXISTS idx_nodes_properties_complexity ON nodes(project, json_extract(properties, '$.complexity'));";
 
 /// Migrate the `tool_calls` table to add new columns for agent/model tracking
 /// and token spend. Uses try-and-ignore because SQLite doesn't support

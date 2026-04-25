@@ -13,6 +13,7 @@ members = [
     "crates/codryn-ui",
     "crates/codryn-watcher",
     "crates/codryn-bin",
+    "crates/codryn-treesitter",
 ]
 
 [workspace.package]
@@ -36,8 +37,22 @@ axum = "0.8"
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 tree-sitter = "0.25"
 tree-sitter-java = "0.23"
+tree-sitter-go = "0.25"
 tree-sitter-kotlin-ng = "1"
 tree-sitter-language = "0.1"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-php = "0.24"
+tree-sitter-swift = "0.7"
+tree-sitter-scala = "0.23"
+tree-sitter-elixir = "0.3"
+tree-sitter-bash = "0.25"
 ignore = "0.4"
 notify = { version = "7", features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.5"
@@ -50,6 +65,9 @@ rust-embed = "8"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+toml = "0.8"
+zstd = "0.13"
 ureq = { version = "2", features = ["json"] }
 flate2 = "1"
 tar = "0.4"
@@ -65,3 +83,4 @@ codryn-mcp = { path = "crates/codryn-mcp" }
 codryn-cli = { path = "crates/codryn-cli" }
 codryn-ui = { path = "crates/codryn-ui" }
 codryn-watcher = { path = "crates/codryn-watcher" }
+codryn-treesitter = { path = "crates/codryn-treesitter" }

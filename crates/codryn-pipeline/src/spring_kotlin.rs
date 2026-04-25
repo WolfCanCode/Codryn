@@ -434,19 +434,8 @@ fn extract_function(
             let full_path = combine_paths(class_base_path, &method_path);
             let route_name = format!("{hm} {full_path}");
             let route_qn = format!("{project}.route.{hm}.{full_path}");
-            let route_props =
-                serde_json::json!({"http_method": hm, "path": full_path, "method_name": name})
-                    .to_string();
-            buf.add_node(
-                "Route",
-                &route_name,
-                &route_qn,
-                &file.rel_path,
-                start,
-                end,
-                Some(route_props),
-            );
-            buf.add_edge_by_qn(&qn, &route_qn, "HANDLES_ROUTE", None);
+            let mut route_props =
+                serde_json::json!({"http_method": hm, "path": full_path, "method_name": name});
 
             // Request body DTO — scan function parameters for @RequestBody
             for i in 0..node.child_count() {
@@ -469,6 +458,7 @@ fn extract_function(
                                     let dto = unwrap_generic_type(&ptype);
                                     let dto = dto.rsplit('.').next().unwrap_or(dto).trim();
                                     if is_dto_candidate(dto) {
+                                        route_props["request_dto_type"] = serde_json::json!(dto);
                                         let dto_qn = format!("{project}.{dto}");
                                         buf.add_edge_by_qn(&route_qn, &dto_qn, "ACCEPTS_DTO", None);
                                     }
@@ -483,9 +473,21 @@ fn extract_function(
             let ret = unwrap_generic_type(&return_type);
             let ret = ret.rsplit('.').next().unwrap_or(ret).trim();
             if is_dto_candidate(ret) {
+                route_props["response_dto_type"] = serde_json::json!(ret);
                 let ret_qn = format!("{project}.{ret}");
                 buf.add_edge_by_qn(&route_qn, &ret_qn, "RETURNS_DTO", None);
             }
+
+            buf.add_node(
+                "Route",
+                &route_name,
+                &route_qn,
+                &file.rel_path,
+                start,
+                end,
+                Some(route_props.to_string()),
+            );
+            buf.add_edge_by_qn(&qn, &route_qn, "HANDLES_ROUTE", None);
         }
     }
 }
@@ -561,17 +563,7 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                         let method_qn = fqn::fqn_compute(project, &file.rel_path, Some(&fname));
                         let s = m.start_position().row as i32 + 1;
                         let e = m.end_position().row as i32 + 1;
-                        let props = serde_json::json!({"http_method": hm, "path": full_path, "method_name": fname}).to_string();
-                        buf.add_node(
-                            "Route",
-                            &format!("{hm} {full_path}"),
-                            &route_qn,
-                            &file.rel_path,
-                            s,
-                            e,
-                            Some(props),
-                        );
-                        buf.add_edge_by_qn(&method_qn, &route_qn, "HANDLES_ROUTE", None);
+                        let mut props = serde_json::json!({"http_method": hm, "path": full_path, "method_name": fname});
                         // Request DTO
                         for ci in 0..m.child_count() {
                             let c = m.child(ci).unwrap();
@@ -588,6 +580,7 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                                             let dto = unwrap_generic_type(&pt);
                                             let dto = dto.rsplit('.').next().unwrap_or(dto).trim();
                                             if is_dto_candidate(dto) {
+                                                props["request_dto_type"] = serde_json::json!(dto);
                                                 buf.add_edge_by_qn(
                                                     &route_qn,
                                                     &format!("{project}.{dto}"),
@@ -606,6 +599,7 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                         let ret = unwrap_generic_type(&ret_type);
                         let ret = ret.rsplit('.').next().unwrap_or(ret).trim();
                         if is_dto_candidate(ret) {
+                            props["response_dto_type"] = serde_json::json!(ret);
                             buf.add_edge_by_qn(
                                 &route_qn,
                                 &format!("{project}.{ret}"),
@@ -613,6 +607,16 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                                 None,
                             );
                         }
+                        buf.add_node(
+                            "Route",
+                            &format!("{hm} {full_path}"),
+                            &route_qn,
+                            &file.rel_path,
+                            s,
+                            e,
+                            Some(props.to_string()),
+                        );
+                        buf.add_edge_by_qn(&method_qn, &route_qn, "HANDLES_ROUTE", None);
                     }
                 }
             }

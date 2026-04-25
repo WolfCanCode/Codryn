@@ -77,7 +77,6 @@ pub struct ToolCall {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolAnalytics {
-    /// Count of MCP (coding agent) tool invocations; excludes dashboard `source = "ui"` rows.
     pub total_calls: i64,
     pub per_tool: Vec<ToolCount>,
     pub per_source: Vec<SourceCount>,
@@ -93,18 +92,18 @@ pub struct ToolAnalytics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceCount {
+    pub source: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCount {
     pub tool_name: String,
     pub count: i64,
     pub avg_ms: f64,
     pub mcp_count: i64,
     pub ui_count: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceCount {
-    pub source: String,
-    pub count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,15 +138,22 @@ pub struct TypeCount {
     pub count: i64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MetadataFilter {
+    pub is_test: Option<bool>,
+    pub is_exported: Option<bool>,
+    pub is_entry_point: Option<bool>,
+    pub min_complexity: Option<u32>,
+    pub label: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteInfo {
     pub method: String,
     pub path: String,
     pub handler: String,
-    /// QN of the handler function (or Route node QN when no handler edge found).
-    pub qualified_name: String,
-    /// QN of the Route node itself — use this for graph traversal in BackendFlowService.
     pub route_node_qn: String,
+    pub qualified_name: String,
     pub file_path: String,
     pub controller: String,
     pub request_dto: Option<String>,

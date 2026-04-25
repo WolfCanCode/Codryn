@@ -33,7 +33,6 @@ impl crate::Store {
     pub fn get_node_by_id(&self, id: i64) -> Result<Option<Node>> {
         use crate::node_from_row;
         use rusqlite::OptionalExtension;
-
         self.conn
             .query_row(
                 "SELECT id, project, label, name, qualified_name, file_path, \
@@ -116,6 +115,18 @@ impl crate::Store {
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Delete all edges whose type starts with a given prefix for a project.
+    /// E.g., prefix "CROSS_" deletes CROSS_HTTP, CROSS_CHANNEL, CROSS_ASYNC, etc.
+    /// Returns the number of deleted edges.
+    pub fn delete_edges_by_type_prefix(&self, project: &str, prefix: &str) -> Result<usize> {
+        let pattern = format!("{}%", prefix);
+        let count = self.conn.execute(
+            "DELETE FROM edges WHERE project = ?1 AND type LIKE ?2",
+            params![project, pattern],
+        )?;
+        Ok(count)
     }
 
     pub fn conn(&self) -> &Connection {

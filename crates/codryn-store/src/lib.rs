@@ -1,4 +1,5 @@
 mod analytics;
+pub mod compressed_store;
 mod edges;
 mod nodes;
 mod projects;
@@ -6,6 +7,7 @@ mod queries;
 mod schema;
 mod types;
 
+pub use queries::extract_semantic_keywords;
 pub use types::*;
 
 /// (name, qualified_name, label, file_path, start_line, edge_type)
@@ -1161,5 +1163,456 @@ mod tests {
         // Mark as deleted
         s.mark_deleted_files("p", &[]).unwrap();
         assert!(!s.has_file_hash("p", "src/alive.rs").unwrap());
+    }
+
+    // ── BM25 Full-Text Search Tests ──────────────────────
+
+    #[test]
+    fn test_extract_semantic_keywords_removes_stop_words() {
+        use crate::queries::extract_semantic_keywords;
+        let result = extract_semantic_keywords("the function is in the module");
+        // "the", "is", "in" are stop words; "function" and "module" remain
+        assert!(result.contains(&"function".to_string()));
+        assert!(result.contains(&"module".to_string()));
+        assert!(!result.contains(&"the".to_string()));
+        assert!(!result.contains(&"is".to_string()));
+        assert!(!result.contains(&"in".to_string()));
+    }
+
+    #[test]
+    fn test_extract_semantic_keywords_filters_single_char() {
+        use crate::queries::extract_semantic_keywords;
+        let result = extract_semantic_keywords("a b function c module");
+        // Single-char tokens "a", "b", "c" should be removed
+        assert_eq!(result, vec!["function", "module"]);
+    }
+
+    #[test]
+    fn test_extract_semantic_keywords_lowercases() {
+        use crate::queries::extract_semantic_keywords;
+        let result = extract_semantic_keywords("UserProfile Handler");
+        assert!(result.iter().all(|t| t == &t.to_lowercase()));
+    }
+
+    #[test]
+    fn test_extract_semantic_keywords_strips_non_alphanumeric() {
+        use crate::queries::extract_semantic_keywords;
+        let result = extract_semantic_keywords("user-profile handler.method");
+        assert!(result.contains(&"userprofile".to_string()));
+        assert!(result.contains(&"handlermethod".to_string()));
+    }
+
+    #[test]
+    fn test_extract_semantic_keywords_empty_after_stop_words() {
+        use crate::queries::extract_semantic_keywords;
+        let result = extract_semantic_keywords("the is a an");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_bm25_ranking_orders_multi_term_matches_higher() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+
+        // Insert nodes
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "getUserProfile".into(),
+            qualified_name: "p.src.getUserProfile".into(),
+            file_path: "src/user.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "getProfile".into(),
+            qualified_name: "p.src.getProfile".into(),
+            file_path: "src/profile.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+
+        // Index FTS content — first doc matches both "user" and "profile",
+        // second doc matches only "profile"
+        s.upsert_code_content_batch(&[
+            (
+                "p".into(),
+                "p.src.getUserProfile".into(),
+                "function getUserProfile user profile data retrieval".into(),
+            ),
+            (
+                "p".into(),
+                "p.src.getProfile".into(),
+                "function getProfile profile data".into(),
+            ),
+        ])
+        .unwrap();
+
+        let results = s.search_code_fts_bm25("p", "user profile", 10).unwrap();
+        assert!(
+            !results.is_empty(),
+            "expected at least 1 BM25 result, got {}",
+            results.len()
+        );
+
+        // If both results are returned, the one matching more terms should rank higher
+        // (BM25 returns negative scores; more negative = better match)
+        if results.len() >= 2 {
+            let first_name = &results[0].0.name;
+            assert_eq!(
+                first_name, "getUserProfile",
+                "multi-term match should rank higher"
+            );
+            // First result should have a better (more negative) score
+            assert!(
+                results[0].1 <= results[1].1,
+                "first result score {} should be <= second {} (more negative = better)",
+                results[0].1,
+                results[1].1
+            );
+        }
+    }
+
+    #[test]
+    fn test_bm25_relevance_score_exposed() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "processOrder".into(),
+            qualified_name: "p.src.processOrder".into(),
+            file_path: "src/order.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+        s.upsert_code_content_batch(&[(
+            "p".into(),
+            "p.src.processOrder".into(),
+            "function processOrder order processing logic".into(),
+        )])
+        .unwrap();
+
+        let results = s.search_code_fts_bm25("p", "order processing", 10).unwrap();
+        assert!(!results.is_empty(), "expected BM25 results");
+        // Score should be a finite number (BM25 returns negative values)
+        let score = results[0].1;
+        assert!(
+            score.is_finite(),
+            "BM25 score should be finite, got {}",
+            score
+        );
+    }
+
+    #[test]
+    fn test_bm25_empty_query_returns_empty() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        // Query with only stop words
+        let results = s.search_code_fts_bm25("p", "the is a an", 10).unwrap();
+        assert!(
+            results.is_empty(),
+            "stop-word-only query should return empty results"
+        );
+    }
+
+    #[test]
+    fn test_search_nodes_broad_bm25_returns_scored_results() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "handleRequest".into(),
+            qualified_name: "p.src.handleRequest".into(),
+            file_path: "src/handler.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+        s.upsert_code_content_batch(&[(
+            "p".into(),
+            "p.src.handleRequest".into(),
+            "function handleRequest request handler logic".into(),
+        )])
+        .unwrap();
+
+        let results = s
+            .search_nodes_broad_bm25("p", "handleRequest", None, 10)
+            .unwrap();
+        assert!(!results.is_empty(), "expected scored results");
+        // Each result should have a score
+        for (node, score) in &results {
+            assert!(
+                score.is_finite(),
+                "score for {} should be finite",
+                node.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_search_nodes_broad_uses_bm25() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "calculateTotal".into(),
+            qualified_name: "p.src.calculateTotal".into(),
+            file_path: "src/calc.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+        s.upsert_code_content_batch(&[(
+            "p".into(),
+            "p.src.calculateTotal".into(),
+            "function calculateTotal total calculation with tax and discount".into(),
+        )])
+        .unwrap();
+
+        // search_nodes_broad should still work and find results via BM25
+        let results = s
+            .search_nodes_broad("p", "total calculation", None, 10)
+            .unwrap();
+        assert!(
+            !results.is_empty(),
+            "search_nodes_broad should find results via BM25"
+        );
+    }
+
+    #[test]
+    fn test_search_nodes_broad_bm25_label_filter() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "myHelper".into(),
+            qualified_name: "p.src.myHelper".into(),
+            file_path: "src/helper.ts".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: None,
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Class".into(),
+            name: "HelperService".into(),
+            qualified_name: "p.src.HelperService".into(),
+            file_path: "src/helper.ts".into(),
+            start_line: 20,
+            end_line: 50,
+            properties_json: None,
+        })
+        .unwrap();
+
+        // Filter by Class label — should only return HelperService
+        let results = s
+            .search_nodes_broad_bm25("p", "helper", Some("Class"), 10)
+            .unwrap();
+        assert!(results.iter().all(|(n, _)| n.label == "Class"));
+    }
+
+    // ── Compressed Code Storage Tests ─────────────────────
+
+    #[test]
+    fn test_compressed_round_trip_small() {
+        // Content below threshold should round-trip unchanged
+        let content = "fn main() { println!(\"hello\"); }";
+        let compressed = crate::compressed_store::maybe_compress(content);
+        let decompressed = crate::compressed_store::maybe_decompress(&compressed);
+        assert_eq!(decompressed, content);
+    }
+
+    #[test]
+    fn test_compressed_round_trip_large() {
+        // Content above threshold should round-trip unchanged
+        let content: String = "fn process_data() { /* lots of code */ }\n".repeat(100);
+        assert!(content.len() > crate::compressed_store::COMPRESSION_THRESHOLD);
+        let compressed = crate::compressed_store::maybe_compress(&content);
+        let decompressed = crate::compressed_store::maybe_decompress(&compressed);
+        assert_eq!(decompressed, content);
+    }
+
+    #[test]
+    fn test_below_threshold_stored_uncompressed() {
+        let content = "short snippet";
+        assert!(content.len() < crate::compressed_store::COMPRESSION_THRESHOLD);
+        let compressed = crate::compressed_store::maybe_compress(content);
+        // Should be raw bytes, no prefix
+        assert!(!compressed.starts_with(crate::compressed_store::COMPRESSED_PREFIX));
+        assert_eq!(compressed, content.as_bytes());
+    }
+
+    #[test]
+    fn test_above_threshold_stored_compressed() {
+        // Repetitive content compresses well
+        let content: String =
+            "function processUserData(userId, userData) {\n    // process\n}\n".repeat(50);
+        assert!(content.len() > crate::compressed_store::COMPRESSION_THRESHOLD);
+        let compressed = crate::compressed_store::maybe_compress(&content);
+        // Should have the prefix and be smaller than original
+        assert!(compressed.starts_with(crate::compressed_store::COMPRESSED_PREFIX));
+        assert!(compressed.len() < content.len());
+    }
+
+    #[test]
+    fn test_decompression_failure_returns_raw() {
+        // Craft data with the prefix but invalid zstd payload
+        let mut bad_data = crate::compressed_store::COMPRESSED_PREFIX.to_vec();
+        bad_data.extend_from_slice(b"\xff\xff\xff\xff");
+        let result = crate::compressed_store::maybe_decompress(&bad_data);
+        // Should return the raw bytes as lossy UTF-8 rather than panicking
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_store_compressed_round_trip() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+
+        // Small content (below threshold)
+        let small = "fn hello() {}";
+        s.upsert_code_content_compressed(&[("p".into(), "p.hello".into(), small.into())])
+            .unwrap();
+        let read = s.get_code_content("p", "p.hello").unwrap();
+        assert_eq!(read, Some(small.to_string()));
+
+        // Large content (above threshold)
+        let large: String = "pub fn big_function() { /* code */ }\n".repeat(100);
+        s.upsert_code_content_compressed(&[("p".into(), "p.big".into(), large.clone())])
+            .unwrap();
+        let read = s.get_code_content("p", "p.big").unwrap();
+        assert_eq!(read, Some(large));
+    }
+
+    #[test]
+    fn test_get_code_content_nonexistent() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        let result = s.get_code_content("p", "p.nonexistent").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_compressed_fts_still_searchable() {
+        // Verify that compressed content is still searchable via FTS
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "processOrder".into(),
+            qualified_name: "p.processOrder".into(),
+            file_path: "src/order.ts".into(),
+            start_line: 1,
+            end_line: 50,
+            properties_json: None,
+        })
+        .unwrap();
+
+        let content: String =
+            "function processOrder(orderId) {\n    // order processing logic\n}\n".repeat(50);
+        s.upsert_code_content_compressed(&[("p".into(), "p.processOrder".into(), content.clone())])
+            .unwrap();
+
+        // FTS search should still find it (uncompressed content in FTS)
+        let results = s.search_code_fts("p", "processOrder", 10).unwrap();
+        assert!(!results.is_empty());
+
+        // And blob read should return original content
+        let read = s.get_code_content("p", "p.processOrder").unwrap();
+        assert_eq!(read, Some(content));
+    }
+
+    #[test]
+    fn test_delete_project_cleans_code_blobs() {
+        let s = test_store();
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        s.upsert_code_content_compressed(&[("p".into(), "p.fn1".into(), "some content".into())])
+            .unwrap();
+        assert!(s.get_code_content("p", "p.fn1").unwrap().is_some());
+
+        s.delete_project("p").unwrap();
+        // After project deletion, code_blobs should be cleaned
+        // Re-create project to query (schema still exists)
+        s.upsert_project(&Project {
+            name: "p".into(),
+            indexed_at: "now".into(),
+            root_path: "/".into(),
+        })
+        .unwrap();
+        assert!(s.get_code_content("p", "p.fn1").unwrap().is_none());
     }
 }

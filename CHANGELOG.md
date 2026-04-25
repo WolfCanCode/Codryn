@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add Codryn-native full pipeline/walker parity: tree-sitter extraction crate, broad language mappings, Go/Vue adapters, type registry, package/import maps, semantic enrichment, similarity detection, and config/event/cross-repo passes.
+- Add richer DevOps indexing for GitLab CI, GitHub Actions, CircleCI, Azure Pipelines, Bitbucket Pipelines, Jenkinsfile-style jobs, Kubernetes, Kustomize, Docker, Helm, and Terraform resources.
+- Add compressed code-content storage and BM25-ranked search support in the Codryn store.
+
+### Changed
+
+- Keep Codryn-only route/framework improvements while upgrading the backend indexing flow to the linked implementation’s broader pass set.
+
 ## [1.3.0] - 2026-04-25
 
 - Initial release

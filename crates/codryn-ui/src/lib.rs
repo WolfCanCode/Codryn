@@ -311,6 +311,8 @@ async fn handle_rpc(state: Arc<AppState>, Json(body): Json<Value>) -> Json<Value
             0,
             0,
             response_bytes,
+            "",
+            &result_str,
         );
     }
 

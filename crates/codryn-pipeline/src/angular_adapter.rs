@@ -76,13 +76,28 @@ pub fn pass_angular(
                 if let Some(name) = class_name(t) {
                     let qn = fqn::fqn_compute(project, &f.rel_path, Some(&name));
                     class_qn = Some(qn.clone());
+                    // Set decorator + layer on the existing node
+                    let dec_name = pending_dec.take().unwrap();
+                    if let Some((_, layer)) =
+                        DECORATORS.iter().find(|(d, _)| *d == dec_name.as_str())
+                    {
+                        if let Ok(Some(existing)) = store.find_node_by_qn(project, &qn) {
+                            let mut v: serde_json::Value = existing
+                                .properties_json
+                                .as_deref()
+                                .and_then(|s| serde_json::from_str(s).ok())
+                                .unwrap_or(serde_json::json!({}));
+                            v["decorator"] = serde_json::json!(dec_name);
+                            v["layer"] = serde_json::json!(layer);
+                            let _ = store.update_node_properties(existing.id, &v.to_string());
+                        }
+                    }
                     if let Some(sel) = pending_sel.take() {
                         let sq = format!("{project}.selector.{sel}");
                         let p = serde_json::json!({"component": name, "selector": sel}).to_string();
                         buf.add_node("Selector", &sel, &sq, &f.rel_path, 0, 0, Some(p));
                         buf.add_edge_by_qn(&sq, &qn, "SELECTS", None);
                     }
-                    pending_dec = None;
                 }
             }
             if let Some(ref cqn) = class_qn {

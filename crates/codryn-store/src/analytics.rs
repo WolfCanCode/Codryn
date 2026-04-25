@@ -16,18 +16,18 @@ impl crate::Store {
         input_tokens: i64,
         output_tokens: i64,
         response_bytes: i64,
+        request_body: &str,
+        response_body: &str,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO tool_calls (tool_name, project, source, duration_ms, success, called_at, agent_name, model_name, input_tokens, output_tokens, response_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![tool_name, project, source, duration_ms, if success { 1 } else { 0 }, now, agent_name, model_name, input_tokens, output_tokens, response_bytes],
+            "INSERT INTO tool_calls (tool_name, project, source, duration_ms, success, called_at, agent_name, model_name, input_tokens, output_tokens, response_bytes, request_body, response_body) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![tool_name, project, source, duration_ms, if success { 1 } else { 0 }, now, agent_name, model_name, input_tokens, output_tokens, response_bytes, request_body, response_body],
         )?;
         Ok(())
     }
 
     pub fn get_tool_analytics(&self, limit: i32) -> Result<ToolAnalytics> {
-        // Dashboard "ui" traffic is logged separately; headline totals and agent/model
-        // breakdowns should reflect MCP (coding agent) invocations only.
         let total_calls: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM tool_calls WHERE source = 'mcp'",
             [],
@@ -59,7 +59,7 @@ impl crate::Store {
         let mut per_source = Vec::new();
         {
             let mut stmt = self.conn.prepare(
-                "SELECT source, COUNT(*) FROM tool_calls WHERE source = 'mcp' GROUP BY source ORDER BY COUNT(*) DESC",
+                "SELECT source, COUNT(*) FROM tool_calls GROUP BY source ORDER BY COUNT(*) DESC",
             )?;
             let rows = stmt.query_map([], |r| {
                 Ok(SourceCount {
@@ -74,9 +74,7 @@ impl crate::Store {
 
         let mut per_agent = Vec::new();
         {
-            let mut stmt = self.conn.prepare(
-                "SELECT agent_name, COUNT(*) as count FROM tool_calls WHERE source = 'mcp' GROUP BY agent_name ORDER BY count DESC",
-            )?;
+            let mut stmt = self.conn.prepare("SELECT agent_name, COUNT(*) as count FROM tool_calls WHERE source = 'mcp' GROUP BY agent_name ORDER BY count DESC")?;
             let rows = stmt.query_map([], |r| {
                 Ok(AgentCount {
                     agent_name: r.get(0)?,
@@ -90,9 +88,7 @@ impl crate::Store {
 
         let mut per_model = Vec::new();
         {
-            let mut stmt = self.conn.prepare(
-                "SELECT model_name, COUNT(*) as count FROM tool_calls WHERE source = 'mcp' GROUP BY model_name ORDER BY count DESC",
-            )?;
+            let mut stmt = self.conn.prepare("SELECT model_name, COUNT(*) as count FROM tool_calls WHERE source = 'mcp' GROUP BY model_name ORDER BY count DESC")?;
             let rows = stmt.query_map([], |r| {
                 Ok(ModelCount {
                     model_name: r.get(0)?,

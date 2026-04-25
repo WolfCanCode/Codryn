@@ -43,7 +43,11 @@ impl crate::Store {
         self.conn
             .execute("DELETE FROM code_fts WHERE project = ?1", params![name])?;
         self.conn
+            .execute("DELETE FROM code_blobs WHERE project = ?1", params![name])?;
+        self.conn
             .execute("DELETE FROM projects WHERE name = ?1", params![name])?;
+        // Reclaim disk space after bulk deletion
+        self.conn.execute_batch("VACUUM")?;
         Ok(())
     }
 
@@ -56,6 +60,10 @@ impl crate::Store {
     pub fn delete_project_code_fts(&self, project: &str) -> Result<()> {
         self.conn
             .execute("DELETE FROM code_fts WHERE project = ?1", params![project])?;
+        self.conn.execute(
+            "DELETE FROM code_blobs WHERE project = ?1",
+            params![project],
+        )?;
         Ok(())
     }
 
@@ -66,6 +74,23 @@ impl crate::Store {
         )?;
         let rows = stmt.query_map(params![project], node_from_row)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn get_project(&self, name: &str) -> Result<Option<Project>> {
+        self.conn
+            .query_row(
+                "SELECT name, indexed_at, root_path FROM projects WHERE name = ?1",
+                params![name],
+                |row| {
+                    Ok(Project {
+                        name: row.get(0)?,
+                        indexed_at: row.get(1)?,
+                        root_path: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
     }
 
     // ── Project Links ─────────────────────────────────────────

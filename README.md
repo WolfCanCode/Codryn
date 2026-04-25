@@ -34,8 +34,8 @@ AI coding agents are much better when they can understand structure, not just gr
 - call paths and imports
 - routes, DTOs, and service layers
 - frontend component relationships and dependency injection
-- CI/CD pipelines, jobs, stages, and dependency edges
-- infrastructure resources from Docker, Kubernetes, Helm, and Terraform-style manifests
+- CI/CD pipelines, jobs, stages, includes, and dependency edges
+- infrastructure resources from Docker, Kubernetes, Kustomize, Helm, and Terraform-style manifests
 - cross-project links between systems
 
 That gives agents fast answers for things like:
@@ -55,8 +55,8 @@ That gives agents fast answers for things like:
 - **Incremental indexing** so re-runs stay fast
 - **Cross-project linking** for multi-repo systems
 - **30 MCP tools** for search, tracing, navigation, analysis, and architecture
-- **CI/CD and infrastructure discovery** for pipeline DAGs and deployment resources
-- **64 language support** through tree-sitter
+- **CI/CD and infrastructure discovery** for GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Bitbucket Pipelines, Jenkinsfile-style jobs, Docker, Kubernetes, Kustomize, Helm, and Terraform resources
+- **64 language detection** plus tree-sitter walkers for Rust, TypeScript, JavaScript, Python, Go, C/C++, C#, Ruby, PHP, Swift, Scala, Elixir, and Bash
 - **Single binary** with no Docker required
 
 ## What makes it interesting
@@ -126,6 +126,7 @@ crates/
 ├── store
 ├── discovery
 ├── indexing pipeline
+├── tree-sitter walkers
 ├── graph buffer
 ├── cypher engine
 ├── services
@@ -152,7 +153,7 @@ Then open `http://127.0.0.1:9749`.
 
 ## Supported languages
 
-Supports 64 languages through tree-sitter, including Rust, TypeScript, JavaScript, Java, Kotlin, Python, Go, C, C++, C#, PHP, Ruby, Scala, Swift, SQL, HTML, CSS, Vue, Svelte, Bash, Dockerfile, YAML, and more.
+Supports 64 language mappings, including Rust, TypeScript, JavaScript, Java, Kotlin, Python, Go, C, C++, C#, PHP, Ruby, Scala, Swift, SQL, HTML, CSS, Vue, Svelte, Bash, Dockerfile, YAML, and more. Codryn also includes tree-sitter symbol walkers for the main backend, frontend, scripting, and systems languages used by the indexing pipeline.
 
 ## Open source
 

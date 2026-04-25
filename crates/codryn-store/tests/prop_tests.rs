@@ -34,6 +34,7 @@ mod property1_round_trip {
                 42, true,
                 &agent_name, &model_name,
                 input_tokens, output_tokens, 0,
+                "", "",
             ).unwrap();
 
             let analytics = store.get_tool_analytics(100).unwrap();
@@ -96,6 +97,7 @@ mod property2_source_breakdown {
                     tool, "proj", source,
                     10, true,
                     "unknown", "unknown", 0, 0, 0,
+                    "", "",
                 ).unwrap();
             }
 
@@ -134,6 +136,7 @@ mod property3_recent_cap {
                     &format!("tool_{}", i % 5), "proj", "mcp",
                     10, true,
                     "agent", "model", 0, 0, 0,
+                    "", "",
                 ).unwrap();
             }
 
@@ -207,6 +210,7 @@ mod property5_aggregation {
                     "some_tool", "proj", "mcp",
                     10, true,
                     agent, model, 0, 0, 0,
+                    "", "",
                 ).unwrap();
             }
 

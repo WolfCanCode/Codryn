@@ -9,6 +9,7 @@ codryn-foundation.workspace = true
 codryn-store.workspace = true
 codryn-discover.workspace = true
 codryn-graph-buffer.workspace = true
+codryn-treesitter.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 serde.workspace = true
@@ -16,6 +17,7 @@ serde_json.workspace = true
 serde_yaml.workspace = true
 tree-sitter.workspace = true
 tree-sitter-java.workspace = true
+tree-sitter-go.workspace = true
 tree-sitter-kotlin-ng.workspace = true
 tree-sitter-language.workspace = true
 aho-corasick.workspace = true
@@ -24,6 +26,7 @@ regex.workspace = true
 sha2.workspace = true
 hex.workspace = true
 chrono.workspace = true
+toml.workspace = true
 
 [dependencies.git2]
 workspace = true
@@ -35,3 +38,4 @@ git-history = ["git2"]
 
 [dev-dependencies]
 tempfile = "3"
+proptest = "1"
