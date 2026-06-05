@@ -10,7 +10,6 @@ use std::path::Path;
 /// For any string that is not in the registered tool name list,
 /// `run_tool` SHALL return an error that contains both the unrecognized
 /// name AND at least one valid tool name from the available list.
-
 /// Strategy that generates random strings guaranteed NOT to be in list_tools().
 /// We use alphanumeric strings with a prefix that no tool name starts with.
 fn unrecognized_tool_name_strategy() -> impl Strategy<Value = String> {

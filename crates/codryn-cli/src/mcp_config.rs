@@ -677,7 +677,7 @@ mod tests {
         let manager = McpConfigManager::new(&prompter);
 
         manager
-            .add(Path::new("/usr/local/bin/codryn"), &[config_path.clone()])
+            .add(Path::new("/usr/local/bin/codryn"), std::slice::from_ref(&config_path))
             .unwrap();
 
         assert!(config_path.exists());
@@ -695,7 +695,7 @@ mod tests {
         let manager = McpConfigManager::new(&prompter);
 
         manager
-            .add(Path::new("/usr/local/bin/codryn"), &[config_path.clone()])
+            .add(Path::new("/usr/local/bin/codryn"), std::slice::from_ref(&config_path))
             .unwrap();
 
         assert!(!config_path.exists());
@@ -742,7 +742,7 @@ mod tests {
         let prompter = MockPrompter::new(vec![MockResponse::Confirm(true)]);
         let manager = McpConfigManager::new(&prompter);
 
-        manager.remove(&[config_path.clone()]).unwrap();
+        manager.remove(std::slice::from_ref(&config_path)).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(!content.contains("codryn"));
@@ -763,7 +763,7 @@ mod tests {
         let prompter = MockPrompter::new(vec![MockResponse::Confirm(false)]);
         let manager = McpConfigManager::new(&prompter);
 
-        manager.remove(&[config_path.clone()]).unwrap();
+        manager.remove(std::slice::from_ref(&config_path)).unwrap();
 
         let content = std::fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("codryn"));

@@ -31,7 +31,7 @@ fn workspaces_strategy() -> impl Strategy<Value = Vec<(String, SteeringIntensity
             let names_vec: Vec<String> = names.into_iter().collect();
             let intensities = proptest::collection::vec(steering_intensity_strategy(), n);
             (Just(names_vec), intensities).prop_map(|(names, ints)| {
-                names.into_iter().zip(ints.into_iter()).collect::<Vec<_>>()
+                names.into_iter().zip(ints).collect::<Vec<_>>()
             })
         })
     })

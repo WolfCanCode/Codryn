@@ -522,7 +522,6 @@ mod proptests {
     /// `detect_ides_with_home()` returns exactly the IDEs whose config directories
     /// exist, with no false positives (reporting IDEs not installed) and no false
     /// negatives (missing IDEs that are installed), for directory-based detection.
-
     /// Returns the config directory path relative to home for each IDE.
     /// These are the directories that, when present, trigger directory-based detection.
     fn ide_config_dirs() -> Vec<(Ide, Vec<&'static str>)> {

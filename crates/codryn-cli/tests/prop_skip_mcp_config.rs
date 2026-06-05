@@ -242,7 +242,7 @@ mod property14_skip_mcp_config {
             // Now call McpConfigManager.add() WITH confirmation (simulating no skip)
             let prompter = MockPrompter::new(vec![MockResponse::Confirm(true)]);
             let manager = McpConfigManager::new(&prompter);
-            let _ = manager.add(&binary_path, &[config_path.clone()]);
+            let _ = manager.add(&binary_path, std::slice::from_ref(&config_path));
 
             let snapshot_after = snapshot_dir(tmp.path());
 

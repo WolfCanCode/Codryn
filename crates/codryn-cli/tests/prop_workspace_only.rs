@@ -62,8 +62,7 @@ mod property18_workspace_only_scope {
             let mut artifacts = Vec::new();
 
             // Place workspace artifacts (steering and skill files inside workspace)
-            for i in 0..ws_count {
-                let filename = &ws_filenames[i];
+            for (i, filename) in ws_filenames.iter().take(ws_count).enumerate() {
                 let file_path = ws_steering_dir.join(filename);
                 fs::write(&file_path, format!("workspace content {}", i))
                     .expect("failed to write workspace file");
@@ -86,8 +85,7 @@ mod property18_workspace_only_scope {
                 .expect("failed to create global data dir");
 
             // Create global steering files
-            for i in 0..global_count {
-                let filename = &global_filenames[i];
+            for (i, filename) in global_filenames.iter().take(global_count).enumerate() {
                 let file_path = global_steering_dir.join(filename);
                 fs::write(&file_path, format!("global steering content {}", i))
                     .expect("failed to write global steering file");

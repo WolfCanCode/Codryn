@@ -483,6 +483,6 @@ mod tests {
         assert_eq!(format_scalar(&json!(42)), "42");
         assert_eq!(format_scalar(&json!(true)), "true");
         assert_eq!(format_scalar(&json!(null)), "-");
-        assert_eq!(format_scalar(&json!(3.14)), "3.14");
+        assert_eq!(format_scalar(&json!(2.5)), "2.5");
     }
 }

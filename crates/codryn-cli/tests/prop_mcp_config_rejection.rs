@@ -76,7 +76,7 @@ mod property13_mcp_config_rejection_preserves_content {
             // Attempt to add — this should propose changes and the user rejects
             let result = manager.add(
                 Path::new(&binary_path),
-                &[config_path.clone()],
+                std::slice::from_ref(&config_path),
             );
 
             // The operation should succeed (rejection is not an error)

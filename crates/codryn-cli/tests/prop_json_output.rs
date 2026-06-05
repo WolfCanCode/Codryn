@@ -58,7 +58,7 @@ fn tool_result_strategy() -> impl Strategy<Value = serde_json::Value> {
         // Response with special characters in strings
         "\\PC{0,100}".prop_map(|s| json!({"message": s})),
         // Response with arrays of mixed types
-        Just(json!({"items": [1, "two", true, null, 3.14]})),
+        Just(json!({"items": [1, "two", true, null, 2.5]})),
     ]
 }
 
