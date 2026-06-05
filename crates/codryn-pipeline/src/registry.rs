@@ -195,6 +195,13 @@ impl TypeRegistry {
     pub fn is_empty(&self) -> bool {
         self.types.is_empty()
     }
+
+    /// Drain all type entries from the registry, consuming them.
+    /// Returns an iterator of ((file_path, symbol_name), TypeEntry) pairs.
+    /// Used by `extract_file_types` to collect results from a temporary TypeRegistry.
+    pub fn drain_types(&mut self) -> impl Iterator<Item = ((String, String), TypeEntry)> + '_ {
+        self.types.drain()
+    }
 }
 
 // ── Scope Analysis (Task 12.2) ───────────────────────

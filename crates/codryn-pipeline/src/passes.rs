@@ -529,7 +529,13 @@ pub fn pass_structure(
         } else {
             fqn::fqn_folder(project, parent_dir)
         };
-        buf.add_edge_by_qn(&parent_qn, &file_qn, "CONTAINS", None);
+        buf.add_edge_with_confidence(
+            &parent_qn,
+            &file_qn,
+            "CONTAINS",
+            codryn_graph_buffer::EdgeSource::AstStructural,
+            None,
+        );
     }
 
     // CONTAINS edges: Project → top-level folders, parent folder → child folder
@@ -544,7 +550,13 @@ pub fn pass_structure(
         } else {
             fqn::fqn_folder(project, parent_dir)
         };
-        buf.add_edge_by_qn(&parent_qn, &folder_qn, "CONTAINS", None);
+        buf.add_edge_with_confidence(
+            &parent_qn,
+            &folder_qn,
+            "CONTAINS",
+            codryn_graph_buffer::EdgeSource::AstStructural,
+            None,
+        );
     }
 }
 
@@ -700,7 +712,13 @@ pub fn pass_calls_with_types(
 
     // Add edges to buffer serially (buffer is not Send)
     for (src, tgt, etype) in edge_tuples {
-        buf.add_edge_by_qn(&src, &tgt, &etype, None);
+        buf.add_edge_with_confidence(
+            &src,
+            &tgt,
+            &etype,
+            codryn_graph_buffer::EdgeSource::AhoCorasickMatch,
+            None,
+        );
     }
 }
 
@@ -879,7 +897,13 @@ pub fn pass_imports_with_pkgmap(
 
     // Add edges to buffer serially
     for (src, tgt) in edge_tuples {
-        buf.add_edge_by_qn(&src, &tgt, "IMPORTS", None);
+        buf.add_edge_with_confidence(
+            &src,
+            &tgt,
+            "IMPORTS",
+            codryn_graph_buffer::EdgeSource::ImportResolver,
+            None,
+        );
     }
 }
 
@@ -1118,7 +1142,13 @@ pub fn pass_semantic(store: &Store, project: &str, files: &[&DiscoveredFile]) ->
                                 let parent = parent.trim().split('<').next().unwrap_or("").trim();
                                 if !parent.is_empty() {
                                     let tgt_qn = format!("{}.{}", project, parent);
-                                    buf.add_edge_by_qn(&src_qn, &tgt_qn, "INHERITS", None);
+                                    buf.add_edge_with_confidence(
+                                        &src_qn,
+                                        &tgt_qn,
+                                        "INHERITS",
+                                        codryn_graph_buffer::EdgeSource::RegexMatch,
+                                        None,
+                                    );
                                 }
                             }
                         }
@@ -1128,7 +1158,13 @@ pub fn pass_semantic(store: &Store, project: &str, files: &[&DiscoveredFile]) ->
                                 let iface = iface.trim().split('<').next().unwrap_or("").trim();
                                 if !iface.is_empty() {
                                     let tgt_qn = format!("{}.{}", project, iface);
-                                    buf.add_edge_by_qn(&src_qn, &tgt_qn, "IMPLEMENTS", None);
+                                    buf.add_edge_with_confidence(
+                                        &src_qn,
+                                        &tgt_qn,
+                                        "IMPLEMENTS",
+                                        codryn_graph_buffer::EdgeSource::RegexMatch,
+                                        None,
+                                    );
                                 }
                             }
                         }
@@ -1144,7 +1180,13 @@ pub fn pass_semantic(store: &Store, project: &str, files: &[&DiscoveredFile]) ->
                             let parent = parent.trim();
                             if !parent.is_empty() && parent != "object" {
                                 let tgt_qn = format!("{}.{}", project, parent);
-                                buf.add_edge_by_qn(&src_qn, &tgt_qn, "INHERITS", None);
+                                buf.add_edge_with_confidence(
+                                    &src_qn,
+                                    &tgt_qn,
+                                    "INHERITS",
+                                    codryn_graph_buffer::EdgeSource::RegexMatch,
+                                    None,
+                                );
                             }
                         }
                     }
@@ -1157,7 +1199,13 @@ pub fn pass_semantic(store: &Store, project: &str, files: &[&DiscoveredFile]) ->
                         let struct_name = caps.get(2).unwrap().as_str();
                         let src_qn = fqn::fqn_compute(project, &f.rel_path, Some(struct_name));
                         let tgt_qn = format!("{}.{}", project, trait_name);
-                        buf.add_edge_by_qn(&src_qn, &tgt_qn, "IMPLEMENTS", None);
+                        buf.add_edge_with_confidence(
+                            &src_qn,
+                            &tgt_qn,
+                            "IMPLEMENTS",
+                            codryn_graph_buffer::EdgeSource::RegexMatch,
+                            None,
+                        );
                     }
                 }
             }
@@ -1275,7 +1323,13 @@ pub fn pass_usages(
         .collect();
 
     for (src, tgt) in edge_tuples {
-        buf.add_edge_by_qn(&src, &tgt, "USES", None);
+        buf.add_edge_with_confidence(
+            &src,
+            &tgt,
+            "USES",
+            codryn_graph_buffer::EdgeSource::AhoCorasickMatch,
+            None,
+        );
     }
 }
 
@@ -1416,7 +1470,13 @@ pub fn pass_tests(
         .collect();
 
     for (src, tgt) in edge_tuples {
-        buf.add_edge_by_qn(&src, &tgt, "TESTS", None);
+        buf.add_edge_with_confidence(
+            &src,
+            &tgt,
+            "TESTS",
+            codryn_graph_buffer::EdgeSource::Heuristic,
+            None,
+        );
     }
 }
 
@@ -1448,6 +1508,8 @@ static ENV_PATTERNS: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 
 /// Pass: Scan for environment variable access patterns and create EnvVar nodes + READS_ENV edges.
+/// Also scans .env files and K8s ConfigMaps to create DEFINES edges from definition sources
+/// to EnvVar nodes.
 pub fn pass_envscan(
     buf: &mut GraphBuffer,
     reg: &Registry,
@@ -1456,6 +1518,7 @@ pub fn pass_envscan(
 ) {
     let mut env_vars_seen: HashSet<String> = HashSet::new();
 
+    // Step 1: Scan code files for env var access patterns (READS_ENV edges)
     let edge_tuples: Vec<(String, String, String)> = files
         .par_iter()
         .flat_map(|f| {
@@ -1509,8 +1572,166 @@ pub fn pass_envscan(
         if env_vars_seen.insert(env_qn.clone()) {
             buf.add_node("EnvVar", env_var, env_qn, "", 0, 0, None);
         }
-        buf.add_edge_by_qn(caller_qn, env_qn, "READS_ENV", None);
+        buf.add_edge_with_confidence(
+            caller_qn,
+            env_qn,
+            "READS_ENV",
+            codryn_graph_buffer::EdgeSource::RegexMatch,
+            None,
+        );
     }
+
+    // Step 2: Scan .env files for variable definitions (DEFINES edges)
+    for f in files {
+        if !is_env_definition_file(&f.rel_path) {
+            continue;
+        }
+        let source = match std::fs::read_to_string(&f.abs_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let file_qn = fqn::fqn_module(project, &f.rel_path);
+
+        for line in source.lines() {
+            let trimmed = line.trim();
+            // Skip comments and empty lines
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            // Match KEY=value pattern (standard .env format)
+            if let Some(caps) = ENV_DEFINE_RE.captures(trimmed) {
+                let var_name = caps.get(1).unwrap().as_str();
+                let env_qn = format!("{}.envvar.{}", project, var_name);
+
+                // Ensure the EnvVar node exists
+                if env_vars_seen.insert(env_qn.clone()) {
+                    buf.add_node("EnvVar", var_name, &env_qn, "", 0, 0, None);
+                }
+
+                // Create DEFINES edge from the .env file to the EnvVar node
+                buf.add_edge_with_confidence(
+                    &file_qn,
+                    &env_qn,
+                    "DEFINES",
+                    codryn_graph_buffer::EdgeSource::RegexMatch,
+                    None,
+                );
+            }
+        }
+    }
+
+    // Step 3: Scan K8s ConfigMap YAML files for data keys (DEFINES edges)
+    for f in files {
+        if !is_k8s_yaml(&f.rel_path, f.language) {
+            continue;
+        }
+        let source = match std::fs::read_to_string(&f.abs_path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Split on YAML document separators to handle multi-document files
+        let documents: Vec<&str> = source.split("\n---").collect();
+
+        for doc in documents {
+            // Check if this is a ConfigMap
+            let kind = match K8S_KIND_RE.captures(doc) {
+                Some(caps) => caps.get(1).unwrap().as_str().to_owned(),
+                None => continue,
+            };
+            if kind != "ConfigMap" {
+                continue;
+            }
+
+            // Extract metadata.name for the ConfigMap
+            let resource_name = match K8S_NAME_RE.captures(doc) {
+                Some(caps) => caps.get(1).unwrap().as_str().to_owned(),
+                None => continue,
+            };
+
+            let configmap_qn = format!("{}.k8s.ConfigMap.{}", project, resource_name);
+
+            // Extract data keys from the ConfigMap's `data:` section
+            let env_vars = extract_configmap_data_keys(doc);
+            for var_name in env_vars {
+                let env_qn = format!("{}.envvar.{}", project, var_name);
+
+                // Ensure the EnvVar node exists
+                if env_vars_seen.insert(env_qn.clone()) {
+                    buf.add_node("EnvVar", &var_name, &env_qn, "", 0, 0, None);
+                }
+
+                // Create DEFINES edge from the ConfigMap resource to the EnvVar node
+                buf.add_edge_with_confidence(
+                    &configmap_qn,
+                    &env_qn,
+                    "DEFINES",
+                    codryn_graph_buffer::EdgeSource::RegexMatch,
+                    None,
+                );
+            }
+        }
+    }
+}
+
+/// Regex to match KEY=value lines in .env files.
+static ENV_DEFINE_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=").unwrap());
+
+/// Returns true if the file is a .env definition file (e.g., `.env`, `.env.local`, `.env.production`).
+fn is_env_definition_file(rel_path: &str) -> bool {
+    let filename = rel_path.rsplit('/').next().unwrap_or(rel_path);
+    let lower = filename.to_lowercase();
+    lower == ".env" || lower.starts_with(".env.")
+}
+
+/// Extract data keys from a K8s ConfigMap YAML document's `data:` section.
+/// Returns a list of key names that look like environment variable names.
+fn extract_configmap_data_keys(doc: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut in_data_section = false;
+
+    for line in doc.lines() {
+        let trimmed = line.trim();
+
+        // Detect the `data:` section at the top level (no leading whitespace or minimal indent)
+        if !line.starts_with(' ') && !line.starts_with('\t') {
+            if trimmed == "data:" {
+                in_data_section = true;
+                continue;
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                // Another top-level key — we've left the data section
+                if in_data_section {
+                    in_data_section = false;
+                }
+            }
+        } else if in_data_section {
+            // Lines indented under `data:` are key-value pairs
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            // Check if this is a new top-level section (less indented)
+            let indent = line.len() - line.trim_start().len();
+            if indent == 0 {
+                in_data_section = false;
+                continue;
+            }
+            // Extract key from `KEY: value` or `KEY: |` patterns
+            if let Some((key, _)) = trimmed.split_once(':') {
+                let key = key.trim();
+                // Only include keys that look like env var names (uppercase with underscores)
+                if !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '-')
+                {
+                    keys.push(key.to_owned());
+                }
+            }
+        }
+    }
+    keys
 }
 
 // ── REST Contract Indexing ────────────────────────────
@@ -1584,7 +1805,13 @@ pub fn pass_angular_templates(
             }
             // Look up the component with this selector
             if let Ok(Some(child)) = store.find_node_by_property(project, "selector", selector) {
-                buf.add_edge_by_qn(parent_qn, &child.qualified_name, "RENDERS", None);
+                buf.add_edge_with_confidence(
+                    parent_qn,
+                    &child.qualified_name,
+                    "RENDERS",
+                    codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                    None,
+                );
             }
         }
     }
@@ -1709,7 +1936,13 @@ pub fn pass_similarity(buf: &mut GraphBuffer, store: &Store, project: &str, repo
         .collect();
 
     for (src, tgt, props) in edge_tuples {
-        buf.add_edge_by_qn(&src, &tgt, "SIMILAR_TO", Some(props));
+        buf.add_edge_with_confidence(
+            &src,
+            &tgt,
+            "SIMILAR_TO",
+            codryn_graph_buffer::EdgeSource::Heuristic,
+            Some(props),
+        );
     }
 }
 
@@ -1723,7 +1956,13 @@ pub fn pass_cross_project_mapping(buf: &mut GraphBuffer, store: &Store, project:
             .find_matching_symbols_across_projects(project, &link.target_project)
             .unwrap_or_default();
         for (a, b) in &matches {
-            buf.add_edge_by_qn(&a.qualified_name, &b.qualified_name, "MAPS_TO", None);
+            buf.add_edge_with_confidence(
+                &a.qualified_name,
+                &b.qualified_name,
+                "MAPS_TO",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                None,
+            );
         }
     }
 }
@@ -1816,7 +2055,13 @@ pub fn pass_configlink(
     for (key, config_qn) in &config_keys {
         let entries = reg.lookup(key);
         for entry in entries {
-            buf.add_edge_by_qn(config_qn, &entry.qualified_name, "CONFIG_LINKS", None);
+            buf.add_edge_with_confidence(
+                config_qn,
+                &entry.qualified_name,
+                "CONFIG_LINKS",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                None,
+            );
         }
     }
 }
@@ -1942,10 +2187,11 @@ pub fn pass_configures(
                         })
                         .to_string();
                         let source_qn = fqn::fqn_compute(project, &f.rel_path, Some(key));
-                        buf.add_edge_by_qn(
+                        buf.add_edge_with_confidence(
                             &source_qn,
                             &entry.qualified_name,
                             "CONFIG_LINKS",
+                            codryn_graph_buffer::EdgeSource::Heuristic,
                             Some(props),
                         );
                     }
@@ -2134,7 +2380,13 @@ pub fn pass_route_nodes(
                 .map(|e| e.qualified_name.as_str())
                 .unwrap_or(module_qn.as_str());
 
-            buf.add_edge_by_qn(handler_qn, &route_qn, "HANDLES_ROUTE", None);
+            buf.add_edge_with_confidence(
+                handler_qn,
+                &route_qn,
+                "HANDLES_ROUTE",
+                codryn_graph_buffer::EdgeSource::RegexMatch,
+                None,
+            );
         }
     }
 }
@@ -2199,10 +2451,11 @@ pub fn pass_semantic_edges(
                 let entries = reg.lookup(overrider.qualified_name.rsplit('.').next().unwrap_or(""));
                 for entry in entries {
                     if entry.qualified_name != overrider.qualified_name && entry.label == "Method" {
-                        buf.add_edge_by_qn(
+                        buf.add_edge_with_confidence(
                             &overrider.qualified_name,
                             &entry.qualified_name,
                             "OVERRIDES",
+                            codryn_graph_buffer::EdgeSource::RegexMatch,
                             None,
                         );
                     }
@@ -2224,10 +2477,11 @@ pub fn pass_semantic_edges(
                 let entries = reg.lookup(method_name);
                 for entry in entries {
                     if entry.qualified_name != overrider.qualified_name && entry.label == "Method" {
-                        buf.add_edge_by_qn(
+                        buf.add_edge_with_confidence(
                             &overrider.qualified_name,
                             &entry.qualified_name,
                             "OVERRIDES",
+                            codryn_graph_buffer::EdgeSource::RegexMatch,
                             None,
                         );
                     }
@@ -2253,7 +2507,13 @@ pub fn pass_semantic_edges(
             let entries = reg.lookup(delegated_method);
             for entry in entries {
                 if entry.file_path != f.rel_path && entry.label == "Method" {
-                    buf.add_edge_by_qn(delegator, &entry.qualified_name, "DELEGATES_TO", None);
+                    buf.add_edge_with_confidence(
+                        delegator,
+                        &entry.qualified_name,
+                        "DELEGATES_TO",
+                        codryn_graph_buffer::EdgeSource::RegexMatch,
+                        None,
+                    );
                 }
             }
         }
@@ -2402,7 +2662,13 @@ pub fn pass_events(
             );
         }
 
-        buf.add_edge_by_qn(caller_qn, &channel_qn, edge_type, None);
+        buf.add_edge_with_confidence(
+            caller_qn,
+            &channel_qn,
+            edge_type,
+            codryn_graph_buffer::EdgeSource::RegexMatch,
+            None,
+        );
     }
 }
 
@@ -2533,19 +2799,23 @@ static K8S_NAME_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?m)^  name:\s*(\S+)").unwrap());
 
 /// Regex to extract `metadata.namespace:`.
+#[allow(dead_code)]
 static K8S_NAMESPACE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?m)^  namespace:\s*(\S+)").unwrap());
 
 /// Regex to extract container image references: `image: <image>`.
+#[allow(dead_code)]
 static K8S_IMAGE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"(?m)^\s+image:\s*['"]?([^\s'"]+)['"]?"#).unwrap());
 
 /// Regex to extract `configMapRef.name` or `configMapKeyRef.name` references.
+#[allow(dead_code)]
 static K8S_CONFIGMAP_REF_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?m)(?:configMapRef|configMapKeyRef):\s*\n\s+name:\s*(\S+)").unwrap()
 });
 
 /// Regex to extract `secretRef.name` or `secretKeyRef.name` references.
+#[allow(dead_code)]
 static K8S_SECRET_REF_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?m)(?:secretRef|secretKeyRef):\s*\n\s+name:\s*(\S+)").unwrap()
 });
@@ -2556,6 +2826,7 @@ static K8S_LABELS_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?m)^\s{4}(\S+):\s*(\S+)").unwrap());
 
 /// Known Kubernetes resource kinds we recognize.
+#[allow(dead_code)]
 const K8S_KINDS: &[&str] = &[
     "Deployment",
     "Service",
@@ -2589,133 +2860,24 @@ fn is_k8s_yaml(rel_path: &str, lang: Language) -> bool {
     }
 }
 
-/// Pass: Parse Kubernetes YAML manifests and create Resource nodes with metadata,
-/// USES_IMAGE edges to Docker_Image nodes, and MOUNTS_CONFIG edges for ConfigMap/Secret refs.
+/// Pass: Parse Kubernetes YAML manifests and create Infrastructure nodes with metadata,
+/// DEPLOYS/CONFIGURES/EXPOSES edges. Delegates to the `pass_k8s` module.
 pub fn pass_k8s(buf: &mut GraphBuffer, files: &[&DiscoveredFile], project: &str) {
-    let mut images_seen: HashSet<String> = HashSet::new();
+    crate::pass_k8s::pass_k8s(buf, files, project);
+}
 
-    for f in files {
-        if !is_k8s_yaml(&f.rel_path, f.language) {
-            continue;
-        }
-
-        let source = match std::fs::read_to_string(&f.abs_path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        // Split on YAML document separators to handle multi-document files
-        let documents: Vec<&str> = source.split("\n---").collect();
-
-        for doc in documents {
-            // Extract kind
-            let kind = match K8S_KIND_RE.captures(doc) {
-                Some(caps) => caps.get(1).unwrap().as_str().to_owned(),
-                None => continue,
-            };
-
-            // Only process known K8s resource kinds
-            if !K8S_KINDS.iter().any(|k| *k == kind) {
-                continue;
-            }
-
-            // Extract metadata.name
-            let resource_name = match K8S_NAME_RE.captures(doc) {
-                Some(caps) => caps.get(1).unwrap().as_str().to_owned(),
-                None => continue,
-            };
-
-            // Extract optional namespace
-            let namespace = K8S_NAMESPACE_RE
-                .captures(doc)
-                .map(|caps| caps.get(1).unwrap().as_str().to_owned());
-
-            // Build properties
-            let mut props = serde_json::json!({
-                "kind": kind,
-                "resource_name": resource_name,
-            });
-            if let Some(ref ns) = namespace {
-                props["namespace"] = serde_json::json!(ns);
-            }
-
-            // Extract labels (simple heuristic: lines with 4-space indent under labels:)
-            if let Some(labels_start) = doc.find("labels:") {
-                let labels_section = &doc[labels_start..];
-                let mut labels = serde_json::Map::new();
-                let mut first = true;
-                for line in labels_section.lines() {
-                    if first {
-                        first = false;
-                        continue; // skip the "labels:" line itself
-                    }
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || (!line.starts_with("    ") && !line.starts_with("\t"))
-                    {
-                        break;
-                    }
-                    if let Some((k, v)) = trimmed.split_once(':') {
-                        let k = k.trim();
-                        let v = v.trim().trim_matches('"').trim_matches('\'');
-                        if !k.is_empty() && !v.is_empty() {
-                            labels.insert(k.to_owned(), serde_json::json!(v));
-                        }
-                    }
-                }
-                if !labels.is_empty() {
-                    props["labels"] = serde_json::Value::Object(labels);
-                }
-            }
-
-            let resource_qn = format!("{}.k8s.{}.{}", project, kind, resource_name);
-            buf.add_node(
-                "Resource",
-                &resource_name,
-                &resource_qn,
-                &f.rel_path,
-                0,
-                0,
-                Some(props.to_string()),
-            );
-
-            // Extract container images and create USES_IMAGE edges
-            for caps in K8S_IMAGE_RE.captures_iter(doc) {
-                let image = caps.get(1).unwrap().as_str();
-                let image_qn = format!("{}.docker_image.{}", project, image);
-
-                if images_seen.insert(image_qn.clone()) {
-                    buf.add_node(
-                        "Docker_Image",
-                        image,
-                        &image_qn,
-                        &f.rel_path,
-                        0,
-                        0,
-                        Some(serde_json::json!({ "image": image }).to_string()),
-                    );
-                }
-
-                buf.add_edge_by_qn(&resource_qn, &image_qn, "USES_IMAGE", None);
-
-                // Also store image in resource properties
-                props["image"] = serde_json::json!(image);
-            }
-
-            // Extract ConfigMap references and create MOUNTS_CONFIG edges
-            for caps in K8S_CONFIGMAP_REF_RE.captures_iter(doc) {
-                let cm_name = caps.get(1).unwrap().as_str();
-                let cm_qn = format!("{}.k8s.ConfigMap.{}", project, cm_name);
-                buf.add_edge_by_qn(&resource_qn, &cm_qn, "MOUNTS_CONFIG", None);
-            }
-
-            // Extract Secret references and create MOUNTS_CONFIG edges
-            for caps in K8S_SECRET_REF_RE.captures_iter(doc) {
-                let secret_name = caps.get(1).unwrap().as_str();
-                let secret_qn = format!("{}.k8s.Secret.{}", project, secret_name);
-                buf.add_edge_by_qn(&resource_qn, &secret_qn, "MOUNTS_CONFIG", None);
-            }
-        }
-    }
+/// Pass: Extract TYPE_OF and TYPE_REF edges from type annotations and function signatures.
+/// Registers resolved types in the TypeRegistry for `pass_calls` disambiguation.
+/// Delegates to the `pass_types` module.
+pub fn pass_types(
+    buf: &mut GraphBuffer,
+    files: &[&DiscoveredFile],
+    file_cache: &crate::FileCache,
+    project: &str,
+    reg: &Registry,
+    type_registry: &mut crate::registry::TypeRegistry,
+) {
+    crate::pass_types::pass_types(buf, files, file_cache, project, reg, type_registry);
 }
 
 // ── Kustomize Parsing ────────────────────────────────
@@ -2809,7 +2971,13 @@ pub fn pass_kustomize(buf: &mut GraphBuffer, files: &[&DiscoveredFile], project:
 
                     // Create IMPORTS edge to the referenced resource
                     let target_qn = fqn::fqn_module(project, &resolved);
-                    buf.add_edge_by_qn(&module_qn, &target_qn, "IMPORTS", None);
+                    buf.add_edge_with_confidence(
+                        &module_qn,
+                        &target_qn,
+                        "IMPORTS",
+                        codryn_graph_buffer::EdgeSource::RegexMatch,
+                        None,
+                    );
                 }
             }
         }
@@ -2889,7 +3057,13 @@ fn parse_dockerfile(
         // If this is not the first stage, create BUILDS_FROM edge from this image to the previous
         if !stages.is_empty() {
             let prev_qn = &stages.last().unwrap().1;
-            buf.add_edge_by_qn(&image_qn, prev_qn, "BUILDS_FROM", None);
+            buf.add_edge_with_confidence(
+                &image_qn,
+                prev_qn,
+                "BUILDS_FROM",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
 
         stages.push((alias, image_qn));
@@ -2913,7 +3087,13 @@ fn parse_dockerfile(
         if let Some(src_qn) = source_qn {
             // The COPIES_FROM edge goes from the current (last) stage to the referenced stage
             if let Some((_, current_qn)) = stages.last() {
-                buf.add_edge_by_qn(current_qn, &src_qn, "COPIES_FROM", None);
+                buf.add_edge_with_confidence(
+                    current_qn,
+                    &src_qn,
+                    "COPIES_FROM",
+                    codryn_graph_buffer::EdgeSource::AstStructural,
+                    None,
+                );
             }
         }
     }
@@ -3035,7 +3215,13 @@ mod git_passes {
         // Create MODIFIED edges from each changed file node to the summary
         for file_path in &changed_files {
             let file_qn = codryn_foundation::fqn::fqn_module(project, file_path);
-            buf.add_edge_by_qn(&file_qn, &summary_qn, "MODIFIED", None);
+            buf.add_edge_with_confidence(
+                &file_qn,
+                &summary_qn,
+                "MODIFIED",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                None,
+            );
         }
 
         tracing::info!(
@@ -3276,7 +3462,13 @@ mod git_passes {
                 let qn_a = codryn_foundation::fqn::fqn_module(project, file_a);
                 let qn_b = codryn_foundation::fqn::fqn_module(project, file_b);
                 let props = serde_json::json!({ "co_change_count": count });
-                buf.add_edge_by_qn(&qn_a, &qn_b, "CO_CHANGED", Some(props.to_string()));
+                buf.add_edge_with_confidence(
+                    &qn_a,
+                    &qn_b,
+                    "CO_CHANGED",
+                    codryn_graph_buffer::EdgeSource::Heuristic,
+                    Some(props.to_string()),
+                );
             }
         }
 
@@ -3412,7 +3604,13 @@ pub fn pass_type_refs(buf: &mut GraphBuffer, reg: &Registry, store: &Store, proj
                     if let Some(target_qn) = resolve_type_to_node(reg, base_type) {
                         let key = (node.qualified_name.clone(), target_qn.clone());
                         if seen_edges.insert(key) {
-                            buf.add_edge_by_qn(&node.qualified_name, &target_qn, "TYPE_REF", None);
+                            buf.add_edge_with_confidence(
+                                &node.qualified_name,
+                                &target_qn,
+                                "TYPE_REF",
+                                codryn_graph_buffer::EdgeSource::AstNameMatch,
+                                None,
+                            );
                         }
                     }
                 }
@@ -3431,7 +3629,13 @@ pub fn pass_type_refs(buf: &mut GraphBuffer, reg: &Registry, store: &Store, proj
             if let Some(target_qn) = resolve_type_to_node(reg, base_type) {
                 let key = (node.qualified_name.clone(), target_qn.clone());
                 if seen_edges.insert(key) {
-                    buf.add_edge_by_qn(&node.qualified_name, &target_qn, "TYPE_REF", None);
+                    buf.add_edge_with_confidence(
+                        &node.qualified_name,
+                        &target_qn,
+                        "TYPE_REF",
+                        codryn_graph_buffer::EdgeSource::AstNameMatch,
+                        None,
+                    );
                 }
             }
         }
@@ -3528,11 +3732,29 @@ pub fn pass_service_patterns(buf: &mut GraphBuffer, store: &Store, project: &str
                 "library": *lib,
             })
             .to_string();
-            buf.add_edge(edge.source_id, edge.target_id, "HTTP_CALLS", Some(props));
+            buf.add_edge_with_source(
+                edge.source_id,
+                edge.target_id,
+                "HTTP_CALLS",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                Some(props),
+            );
         } else if ASYNC_BROKER_LIBS.iter().any(|l| qn_lower.contains(l)) {
-            buf.add_edge(edge.source_id, edge.target_id, "ASYNC_CALLS", None);
+            buf.add_edge_with_source(
+                edge.source_id,
+                edge.target_id,
+                "ASYNC_CALLS",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                None,
+            );
         } else if CONFIG_LIBS.iter().any(|l| qn_lower.contains(l)) {
-            buf.add_edge(edge.source_id, edge.target_id, "CONFIGURES", None);
+            buf.add_edge_with_source(
+                edge.source_id,
+                edge.target_id,
+                "CONFIGURES",
+                codryn_graph_buffer::EdgeSource::Heuristic,
+                None,
+            );
         }
     }
 }
@@ -3669,7 +3891,13 @@ pub fn pass_semantic_edges_v2(buf: &mut GraphBuffer, reg: &Registry, store: &Sto
                         edge_type.to_string(),
                     );
                     if seen_edges.insert(key) {
-                        buf.add_edge_by_qn(&node.qualified_name, &target_qn, edge_type, None);
+                        buf.add_edge_with_confidence(
+                            &node.qualified_name,
+                            &target_qn,
+                            edge_type,
+                            codryn_graph_buffer::EdgeSource::AstNameMatch,
+                            None,
+                        );
                     }
                 }
             }
@@ -3697,7 +3925,13 @@ pub fn pass_semantic_edges_v2(buf: &mut GraphBuffer, reg: &Registry, store: &Sto
                     );
                     if seen_edges.insert(key) {
                         // Edge direction: decorator → decorated symbol
-                        buf.add_edge_by_qn(&target_qn, &node.qualified_name, "DECORATES", None);
+                        buf.add_edge_with_confidence(
+                            &target_qn,
+                            &node.qualified_name,
+                            "DECORATES",
+                            codryn_graph_buffer::EdgeSource::AstNameMatch,
+                            None,
+                        );
                     }
                 }
             }
@@ -3811,13 +4045,20 @@ fn match_cross_http_routes(buf: &mut GraphBuffer, store: &Store, project_a: &str
                         .to_string();
 
                         // Bidirectional: A -> B and B -> A
-                        buf.add_edge(
+                        buf.add_edge_with_source(
                             route_a.id,
                             route_b.id,
                             "CROSS_HTTP",
+                            codryn_graph_buffer::EdgeSource::Heuristic,
                             Some(props_json.clone()),
                         );
-                        buf.add_edge(route_b.id, route_a.id, "CROSS_HTTP", Some(props_json));
+                        buf.add_edge_with_source(
+                            route_b.id,
+                            route_a.id,
+                            "CROSS_HTTP",
+                            codryn_graph_buffer::EdgeSource::Heuristic,
+                            Some(props_json),
+                        );
                     }
                 }
             }
@@ -3866,8 +4107,20 @@ fn match_cross_channels(buf: &mut GraphBuffer, store: &Store, project_a: &str, p
                 .to_string();
 
                 // Bidirectional
-                buf.add_edge(ch_a.id, ch_b.id, "CROSS_CHANNEL", Some(props_json.clone()));
-                buf.add_edge(ch_b.id, ch_a.id, "CROSS_CHANNEL", Some(props_json));
+                buf.add_edge_with_source(
+                    ch_a.id,
+                    ch_b.id,
+                    "CROSS_CHANNEL",
+                    codryn_graph_buffer::EdgeSource::Heuristic,
+                    Some(props_json.clone()),
+                );
+                buf.add_edge_with_source(
+                    ch_b.id,
+                    ch_a.id,
+                    "CROSS_CHANNEL",
+                    codryn_graph_buffer::EdgeSource::Heuristic,
+                    Some(props_json),
+                );
             }
         }
     }
@@ -3931,13 +4184,20 @@ fn match_cross_async_topics(
                 .to_string();
 
                 // Bidirectional
-                buf.add_edge(
+                buf.add_edge_with_source(
                     *node_id_a,
                     *node_id_b,
                     "CROSS_ASYNC",
+                    codryn_graph_buffer::EdgeSource::Heuristic,
                     Some(props_json.clone()),
                 );
-                buf.add_edge(*node_id_b, *node_id_a, "CROSS_ASYNC", Some(props_json));
+                buf.add_edge_with_source(
+                    *node_id_b,
+                    *node_id_a,
+                    "CROSS_ASYNC",
+                    codryn_graph_buffer::EdgeSource::Heuristic,
+                    Some(props_json),
+                );
             }
         }
     }
@@ -4101,7 +4361,13 @@ fn create_deploy_edges(
                 } else {
                     format!("{}.infra.docker_target", project)
                 };
-                buf.add_edge_by_qn(job_qn, &target_qn, edge_type, None);
+                buf.add_edge_with_confidence(
+                    job_qn,
+                    &target_qn,
+                    edge_type,
+                    codryn_graph_buffer::EdgeSource::Heuristic,
+                    None,
+                );
             }
         }
     }
@@ -4204,7 +4470,13 @@ fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project:
         );
 
         if let Some(ref prev_qn) = prev_stage_qn {
-            buf.add_edge_by_qn(prev_qn, &stage_qn, "NEXT_STAGE", None);
+            buf.add_edge_with_confidence(
+                prev_qn,
+                &stage_qn,
+                "NEXT_STAGE",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
         prev_stage_qn = Some(stage_qn);
     }
@@ -4290,7 +4562,13 @@ fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project:
             "{}.pipeline.gitlab.{}.stage.{}",
             project, pipeline_name, stage
         );
-        buf.add_edge_by_qn(&job_qn, &stage_qn, "BELONGS_TO_STAGE", None);
+        buf.add_edge_with_confidence(
+            &job_qn,
+            &stage_qn,
+            "BELONGS_TO_STAGE",
+            codryn_graph_buffer::EdgeSource::AstStructural,
+            None,
+        );
 
         // DEPENDS_ON edges from needs
         if let Some(needs) = job_map.get(serde_yaml::Value::String("needs".into())) {
@@ -4310,7 +4588,13 @@ fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project:
             };
             for need in &need_names {
                 let need_qn = format!("{}.pipeline.gitlab.{}.job.{}", project, pipeline_name, need);
-                buf.add_edge_by_qn(&job_qn, &need_qn, "DEPENDS_ON", None);
+                buf.add_edge_with_confidence(
+                    &job_qn,
+                    &need_qn,
+                    "DEPENDS_ON",
+                    codryn_graph_buffer::EdgeSource::AstStructural,
+                    None,
+                );
             }
         }
 
@@ -4343,7 +4627,7 @@ fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project:
 
             let (job_name, stage_hint) = if let Some(comp) = component {
                 // Extract meaningful name from component path
-                // e.g. "code.example.com/org/cicd/ci/build-java-maven/maven@~latest"
+                // e.g. "code.swisscom.com/swisscom/cicd/ci/build-java-maven/maven@~latest"
                 //   → name: "maven", stage hint from path segment: "build-java-maven" → "build"
                 let path_part = comp.split('@').next().unwrap_or(comp);
                 let segments: Vec<&str> = path_part.split('/').collect();
@@ -4407,7 +4691,13 @@ fn parse_gitlab_ci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project:
                 "{}.pipeline.gitlab.{}.stage.{}",
                 project, pipeline_name, stage
             );
-            buf.add_edge_by_qn(&job_qn, &stage_qn, "BELONGS_TO_STAGE", None);
+            buf.add_edge_with_confidence(
+                &job_qn,
+                &stage_qn,
+                "BELONGS_TO_STAGE",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
     }
 }
@@ -4561,7 +4851,13 @@ fn parse_github_actions(buf: &mut GraphBuffer, source: &str, rel_path: &str, pro
             };
             for need in &need_names {
                 let need_qn = format!("{}.pipeline.github.{}.job.{}", project, pipeline_name, need);
-                buf.add_edge_by_qn(&job_qn, &need_qn, "DEPENDS_ON", None);
+                buf.add_edge_with_confidence(
+                    &job_qn,
+                    &need_qn,
+                    "DEPENDS_ON",
+                    codryn_graph_buffer::EdgeSource::AstStructural,
+                    None,
+                );
             }
         }
 
@@ -4612,7 +4908,13 @@ fn parse_jenkinsfile(buf: &mut GraphBuffer, source: &str, rel_path: &str, projec
         );
 
         if let Some(ref prev_qn) = prev_stage_qn {
-            buf.add_edge_by_qn(prev_qn, &stage_qn, "NEXT_STAGE", None);
+            buf.add_edge_with_confidence(
+                prev_qn,
+                &stage_qn,
+                "NEXT_STAGE",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
         prev_stage_qn = Some(stage_qn);
     }
@@ -4762,7 +5064,13 @@ fn parse_circleci(buf: &mut GraphBuffer, source: &str, rel_path: &str, project: 
                                             "{}.pipeline.circleci.{}.job.{}",
                                             project, pipeline_name, req_name
                                         );
-                                        buf.add_edge_by_qn(&job_qn, &req_qn, "DEPENDS_ON", None);
+                                        buf.add_edge_with_confidence(
+                                            &job_qn,
+                                            &req_qn,
+                                            "DEPENDS_ON",
+                                            codryn_graph_buffer::EdgeSource::AstStructural,
+                                            None,
+                                        );
                                     }
                                 }
                             }
@@ -4857,7 +5165,13 @@ fn parse_azure_pipelines(buf: &mut GraphBuffer, source: &str, rel_path: &str, pr
             );
 
             if let Some(ref prev_qn) = prev_stage_qn {
-                buf.add_edge_by_qn(prev_qn, &stage_qn, "NEXT_STAGE", None);
+                buf.add_edge_with_confidence(
+                    prev_qn,
+                    &stage_qn,
+                    "NEXT_STAGE",
+                    codryn_graph_buffer::EdgeSource::AstStructural,
+                    None,
+                );
             }
             prev_stage_qn = Some(stage_qn.clone());
 
@@ -4926,7 +5240,13 @@ fn parse_azure_pipelines(buf: &mut GraphBuffer, source: &str, rel_path: &str, pr
                         Some(job_props.to_string()),
                     );
 
-                    buf.add_edge_by_qn(&job_qn, &stage_qn, "BELONGS_TO_STAGE", None);
+                    buf.add_edge_with_confidence(
+                        &job_qn,
+                        &stage_qn,
+                        "BELONGS_TO_STAGE",
+                        codryn_graph_buffer::EdgeSource::AstStructural,
+                        None,
+                    );
 
                     // DEPENDS_ON from dependsOn
                     if let Some(deps) = job_map
@@ -4939,7 +5259,13 @@ fn parse_azure_pipelines(buf: &mut GraphBuffer, source: &str, rel_path: &str, pr
                                     "{}.pipeline.azure.{}.job.{}",
                                     project, pipeline_name, dep_name
                                 );
-                                buf.add_edge_by_qn(&job_qn, &dep_qn, "DEPENDS_ON", None);
+                                buf.add_edge_with_confidence(
+                                    &job_qn,
+                                    &dep_qn,
+                                    "DEPENDS_ON",
+                                    codryn_graph_buffer::EdgeSource::AstStructural,
+                                    None,
+                                );
                             }
                         }
                     }
@@ -5107,140 +5433,12 @@ pub fn pass_iac(buf: &mut GraphBuffer, files: &[&DiscoveredFile], project: &str)
             return;
         }
 
-        // CDK: treat any cdk.json as an infra entrypoint even if language detection
-        // doesn't classify it as JSON.
-        if f.rel_path.ends_with("cdk.json") {
-            let parent = Path::new(&f.rel_path)
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|s| s.to_str())
-                .unwrap_or("cdk");
-            let qn = format!("{}.cdk.app.{}", project, parent);
-            let props = serde_json::json!({
-                "infra_type": "cdk",
-                "resource_type": "app_manifest",
-                "resource_name": parent,
-            });
-            buf.add_node(
-                "Infra",
-                parent,
-                &qn,
-                &f.rel_path,
-                0,
-                0,
-                Some(props.to_string()),
-            );
-        }
-
         match f.language {
             Language::Hcl => {
                 parse_terraform(buf, f, project);
             }
             Language::Yaml if is_helm_chart_yaml(&f.rel_path) => {
                 parse_helm_chart(buf, f, project);
-            }
-            Language::Yaml => {
-                // Pulumi: Pulumi.yaml / Pulumi.<stack>.yaml / Pulumi.<stack>.yml
-                let filename = f.rel_path.rsplit('/').next().unwrap_or(&f.rel_path);
-                if filename.starts_with("Pulumi.")
-                    || filename == "Pulumi.yaml"
-                    || filename == "Pulumi.yml"
-                {
-                    let stem = Path::new(filename)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("Pulumi");
-                    let qn = format!("{}.pulumi.{}", project, stem);
-                    let props = serde_json::json!({
-                        "infra_type": "pulumi",
-                        "resource_type": "stack_config",
-                        "resource_name": stem,
-                    });
-                    buf.add_node(
-                        "Infra",
-                        stem,
-                        &qn,
-                        &f.rel_path,
-                        0,
-                        0,
-                        Some(props.to_string()),
-                    );
-                }
-
-                // CloudFormation/SAM: common template names
-                if filename == "template.yaml"
-                    || filename == "template.yml"
-                    || filename.ends_with(".template.yaml")
-                    || filename.ends_with(".template.yml")
-                {
-                    let stem = Path::new(filename)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("template");
-                    let source = std::fs::read_to_string(&f.abs_path)
-                        .ok()
-                        .unwrap_or_default();
-                    let (resource_count, sample) =
-                        serde_yaml::from_str::<serde_yaml::Value>(&source)
-                            .ok()
-                            .and_then(|doc| doc.as_mapping().cloned())
-                            .and_then(|m| {
-                                let resources = m
-                                    .get(serde_yaml::Value::String("Resources".into()))?
-                                    .as_mapping()?;
-                                let mut names: Vec<String> = resources
-                                    .keys()
-                                    .filter_map(|k| k.as_str().map(|s| s.to_owned()))
-                                    .collect();
-                                names.sort();
-                                let sample = names.iter().take(5).cloned().collect::<Vec<_>>();
-                                Some((names.len(), sample))
-                            })
-                            .unwrap_or((0usize, Vec::new()));
-
-                    let qn = format!("{}.cloudformation.{}", project, stem);
-                    let props = serde_json::json!({
-                        "infra_type": "cloudformation",
-                        "resource_type": "template",
-                        "resource_name": stem,
-                        "resource_count": resource_count,
-                        "resource_sample": sample,
-                    });
-                    buf.add_node(
-                        "Infra",
-                        stem,
-                        &qn,
-                        &f.rel_path,
-                        0,
-                        0,
-                        Some(props.to_string()),
-                    );
-                }
-            }
-            Language::TypeScript | Language::Python => {
-                // CDK stack conventions: *Stack.ts / *Stack.py
-                let filename = f.rel_path.rsplit('/').next().unwrap_or(&f.rel_path);
-                if filename.ends_with("Stack.ts") || filename.ends_with("Stack.py") {
-                    let stem = Path::new(filename)
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("Stack");
-                    let qn = format!("{}.cdk.stack.{}", project, stem);
-                    let props = serde_json::json!({
-                        "infra_type": "cdk",
-                        "resource_type": "stack",
-                        "resource_name": stem,
-                    });
-                    buf.add_node(
-                        "Infra",
-                        stem,
-                        &qn,
-                        &f.rel_path,
-                        0,
-                        0,
-                        Some(props.to_string()),
-                    );
-                }
             }
             _ => {}
         }
@@ -5347,7 +5545,13 @@ fn parse_terraform(buf: &mut GraphBuffer, f: &DiscoveredFile, project: &str) {
         // Create USES_IMAGE from any resource in this file to the Docker image
         // We link from the first resource in the file as a reasonable heuristic
         if let Some(first_qn) = known_resources.values().next() {
-            buf.add_edge_by_qn(first_qn, &docker_qn, "USES_IMAGE", None);
+            buf.add_edge_with_confidence(
+                first_qn,
+                &docker_qn,
+                "USES_IMAGE",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
     }
 }
@@ -5431,7 +5635,13 @@ fn detect_terraform_references(
                 if *target_qn != src_qn {
                     let edge_key = (src_qn.clone(), target_qn.clone());
                     if seen_edges.insert(edge_key) {
-                        buf.add_edge_by_qn(&src_qn, target_qn, "DEPENDS_ON", None);
+                        buf.add_edge_with_confidence(
+                            &src_qn,
+                            target_qn,
+                            "DEPENDS_ON",
+                            codryn_graph_buffer::EdgeSource::AstStructural,
+                            None,
+                        );
                     }
                 }
             }
@@ -5536,7 +5746,13 @@ fn parse_helm_chart(buf: &mut GraphBuffer, f: &DiscoveredFile, project: &str) {
             );
 
             // DEPENDS_ON edge from parent chart to dependency
-            buf.add_edge_by_qn(&chart_qn, &dep_qn, "DEPENDS_ON", None);
+            buf.add_edge_with_confidence(
+                &chart_qn,
+                &dep_qn,
+                "DEPENDS_ON",
+                codryn_graph_buffer::EdgeSource::AstStructural,
+                None,
+            );
         }
     }
 
@@ -5548,7 +5764,13 @@ fn parse_helm_chart(buf: &mut GraphBuffer, f: &DiscoveredFile, project: &str) {
             for caps in TF_IMAGE_RE.captures_iter(&values_source) {
                 let image = caps.get(1).unwrap().as_str();
                 let docker_qn = format!("{}.docker_image.{}", project, image);
-                buf.add_edge_by_qn(&chart_qn, &docker_qn, "USES_IMAGE", None);
+                buf.add_edge_with_confidence(
+                    &chart_qn,
+                    &docker_qn,
+                    "USES_IMAGE",
+                    codryn_graph_buffer::EdgeSource::AstStructural,
+                    None,
+                );
             }
         }
     }
@@ -5966,6 +6188,132 @@ mod tests {
 
         assert_eq!(buf.node_count(), 0, "no env vars should produce no nodes");
         assert_eq!(buf.edge_count(), 0, "no env vars should produce no edges");
+    }
+
+    #[test]
+    fn test_pass_envscan_defines_from_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = "p";
+
+        // Create a .env file with variable definitions
+        let env_file = write_file(
+            dir.path(),
+            ".env",
+            "PORT=3000\nDATABASE_URL=postgres://localhost/db\n# comment\nSECRET_KEY=abc123\n",
+            Language::Unknown,
+        );
+
+        let reg = Registry::new();
+        let mut buf = GraphBuffer::new(project);
+        let files: Vec<&DiscoveredFile> = vec![&env_file];
+        pass_envscan(&mut buf, &reg, &files, project);
+
+        // Should create 3 EnvVar nodes and 3 DEFINES edges
+        assert_eq!(
+            buf.node_count(),
+            3,
+            "should create 3 EnvVar nodes from .env file"
+        );
+        assert_eq!(
+            buf.edge_count(),
+            3,
+            "should create 3 DEFINES edges from .env file"
+        );
+    }
+
+    #[test]
+    fn test_pass_envscan_defines_from_k8s_configmap() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = "p";
+
+        let yaml = "\
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  DATABASE_URL: postgres://localhost/db
+  REDIS_HOST: redis.default.svc
+";
+        let file = write_file(dir.path(), "k8s/configmap.yaml", yaml, Language::Yaml);
+
+        let reg = Registry::new();
+        let mut buf = GraphBuffer::new(project);
+        let files: Vec<&DiscoveredFile> = vec![&file];
+        pass_envscan(&mut buf, &reg, &files, project);
+
+        // Should create 2 EnvVar nodes and 2 DEFINES edges from ConfigMap
+        assert_eq!(
+            buf.node_count(),
+            2,
+            "should create 2 EnvVar nodes from ConfigMap data keys"
+        );
+        assert_eq!(
+            buf.edge_count(),
+            2,
+            "should create 2 DEFINES edges from ConfigMap to EnvVar"
+        );
+    }
+
+    #[test]
+    fn test_pass_envscan_defines_deduplicates_with_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = "p";
+
+        // .env file defines PORT
+        let env_file = write_file(dir.path(), ".env", "PORT=3000\n", Language::Unknown);
+
+        // Code file reads PORT
+        let code_file = write_file(
+            dir.path(),
+            "src/app.ts",
+            "const port = process.env.PORT;\n",
+            Language::TypeScript,
+        );
+
+        let reg = Registry::new();
+        let mut buf = GraphBuffer::new(project);
+        let files: Vec<&DiscoveredFile> = vec![&env_file, &code_file];
+        pass_envscan(&mut buf, &reg, &files, project);
+
+        // Should create only 1 EnvVar node for PORT (deduplicated)
+        assert_eq!(
+            buf.node_count(),
+            1,
+            "should create exactly 1 EnvVar node for PORT (deduplicated)"
+        );
+        // Should create 1 READS_ENV edge + 1 DEFINES edge = 2 edges
+        assert_eq!(
+            buf.edge_count(),
+            2,
+            "should create 1 READS_ENV + 1 DEFINES edge"
+        );
+    }
+
+    #[test]
+    fn test_pass_envscan_env_file_skips_comments_and_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = "p";
+
+        let env_file = write_file(
+            dir.path(),
+            ".env.local",
+            "# This is a comment\n\n  \nVALID_KEY=value\n",
+            Language::Unknown,
+        );
+
+        let reg = Registry::new();
+        let mut buf = GraphBuffer::new(project);
+        let files: Vec<&DiscoveredFile> = vec![&env_file];
+        pass_envscan(&mut buf, &reg, &files, project);
+
+        // Should only create 1 EnvVar node for VALID_KEY
+        assert_eq!(
+            buf.node_count(),
+            1,
+            "should create 1 EnvVar node, skipping comments and empty lines"
+        );
+        assert_eq!(buf.edge_count(), 1, "should create 1 DEFINES edge");
     }
 
     // ── pass_configlink tests ────────────────────────────
@@ -7428,16 +7776,16 @@ spec:
         let files: Vec<&DiscoveredFile> = vec![&file];
         pass_k8s(&mut buf, &files, project);
 
-        // Should create a Resource node for the Deployment and a Docker_Image node
+        // Should create an Infrastructure node for the Deployment and one for the image
         assert!(
             buf.node_count() >= 2,
-            "should create Resource + Docker_Image nodes, got {}",
+            "should create Infrastructure + image nodes, got {}",
             buf.node_count()
         );
-        // Should create a USES_IMAGE edge
+        // Should create a DEPLOYS edge
         assert!(
             buf.edge_count() >= 1,
-            "should create USES_IMAGE edge, got {}",
+            "should create DEPLOYS edge, got {}",
             buf.edge_count()
         );
     }
@@ -7461,11 +7809,11 @@ data:
         let files: Vec<&DiscoveredFile> = vec![&file];
         pass_k8s(&mut buf, &files, project);
 
-        // Should create a Resource node for the ConfigMap
+        // Should create an Infrastructure node for the ConfigMap
         assert_eq!(
             buf.node_count(),
             1,
-            "should create 1 Resource node for ConfigMap"
+            "should create 1 Infrastructure node for ConfigMap"
         );
     }
 

@@ -38,9 +38,8 @@ impl crate::Store {
         {
             let mut stmt = self.conn.prepare(
                 "SELECT tool_name, COUNT(*) as cnt, AVG(duration_ms) as avg_ms, \
-                 SUM(CASE WHEN source='mcp' THEN 1 ELSE 0 END) as mcp_count, \
-                 SUM(CASE WHEN source='ui' THEN 1 ELSE 0 END) as ui_count \
-                 FROM tool_calls GROUP BY tool_name ORDER BY cnt DESC",
+                 COUNT(*) as mcp_count, 0 as ui_count \
+                 FROM tool_calls WHERE source = 'mcp' GROUP BY tool_name ORDER BY cnt DESC",
             )?;
             let rows = stmt.query_map([], |r| {
                 Ok(ToolCount {
@@ -53,22 +52,6 @@ impl crate::Store {
             })?;
             for r in rows.flatten() {
                 per_tool.push(r);
-            }
-        }
-
-        let mut per_source = Vec::new();
-        {
-            let mut stmt = self.conn.prepare(
-                "SELECT source, COUNT(*) FROM tool_calls GROUP BY source ORDER BY COUNT(*) DESC",
-            )?;
-            let rows = stmt.query_map([], |r| {
-                Ok(SourceCount {
-                    source: r.get(0)?,
-                    count: r.get(1)?,
-                })
-            })?;
-            for r in rows.flatten() {
-                per_source.push(r);
             }
         }
 
@@ -149,7 +132,7 @@ impl crate::Store {
             let mut stmt = self.conn.prepare(
                 "SELECT id, tool_name, project, source, duration_ms, success, called_at, \
                  agent_name, model_name, input_tokens, output_tokens, response_bytes \
-                 FROM tool_calls ORDER BY id DESC LIMIT ?1",
+                 FROM tool_calls WHERE source = 'mcp' ORDER BY id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit], |r| {
                 Ok(ToolCall {
@@ -177,7 +160,6 @@ impl crate::Store {
         Ok(ToolAnalytics {
             total_calls,
             per_tool,
-            per_source,
             per_agent,
             per_model,
             total_input_tokens,

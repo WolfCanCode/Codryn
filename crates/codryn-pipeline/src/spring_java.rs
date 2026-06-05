@@ -3,7 +3,8 @@ use codryn_foundation::fqn;
 use codryn_graph_buffer::GraphBuffer;
 use tree_sitter::{Node, Parser};
 
-use crate::registry::Registry;
+use crate::extraction::{ExtractionEdge, ExtractionNode, ExtractionResult};
+use crate::registry::{Registry, RegistryEntry};
 use crate::spring_common::*;
 
 fn make_parser() -> Option<Parser> {
@@ -13,40 +14,26 @@ fn make_parser() -> Option<Parser> {
     Some(parser)
 }
 
-/// Extract definitions from a Java file using tree-sitter AST.
-pub fn extract_java(
-    buf: &mut GraphBuffer,
-    reg: &mut Registry,
-    project: &str,
-    file: &DiscoveredFile,
-) {
+/// Extract definitions from a Java file using tree-sitter AST (parallel-safe).
+/// Returns an `ExtractionResult` with nodes, registry entries, code snippets, and edges
+/// without mutating any shared state. Safe to call from multiple threads.
+pub fn extract_java_parallel(project: &str, file: &DiscoveredFile) -> Option<ExtractionResult> {
     let source = match std::fs::read_to_string(&file.abs_path) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return Some(ExtractionResult::new()),
     };
-    let mut parser = match make_parser() {
-        Some(p) => p,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
-    let tree = match parser.parse(&source, None) {
-        Some(t) => t,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
+    let mut parser = make_parser()?;
+    let tree = parser.parse(&source, None)?;
 
     let src = source.as_bytes();
     let root = tree.root_node();
+    let mut result = ExtractionResult::new();
 
     for i in 0..root.child_count() {
         let child = root.child(i).unwrap();
         match child.kind() {
             "class_declaration" | "interface_declaration" | "enum_declaration" => {
-                extract_class(buf, reg, project, file, src, &child);
+                extract_class_parallel(&mut result, project, file, src, &child);
             }
             _ => {}
         }
@@ -59,15 +46,34 @@ pub fn extract_java(
         .and_then(|s| s.to_str())
         .unwrap_or(&file.rel_path);
     let lines: Vec<&str> = source.lines().collect();
-    buf.add_node(
-        "Module",
-        module_name,
-        &module_qn,
-        &file.rel_path,
-        1,
-        lines.len() as i32,
-        None,
-    );
+    result.nodes.push(ExtractionNode {
+        label: "Module".to_owned(),
+        name: module_name.to_owned(),
+        qualified_name: module_qn,
+        file_path: file.rel_path.clone(),
+        start_line: 1,
+        end_line: lines.len() as i32,
+        properties_json: None,
+    });
+
+    Some(result)
+}
+
+/// Extract definitions from a Java file using tree-sitter AST.
+/// Thin wrapper around `extract_java_parallel` that applies results to buf/reg.
+pub fn extract_java(
+    buf: &mut GraphBuffer,
+    reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+) {
+    match extract_java_parallel(project, file) {
+        Some(result) => result.apply(buf, reg),
+        None => {
+            // Parser unavailable or parse failed — fall back to generic extraction
+            super::extraction::extract_file(buf, reg, project, file);
+        }
+    }
 }
 
 /// Register-only variant for incremental reindex (unchanged files).
@@ -168,9 +174,8 @@ fn get_annotation_args_text(node: &Node, src: &[u8], ann_name: &str) -> Option<S
     None
 }
 
-fn extract_class(
-    buf: &mut GraphBuffer,
-    reg: &mut Registry,
+fn extract_class_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -218,21 +223,37 @@ fn extract_class(
     let end = node.end_position().row as i32 + 1;
     let qn = fqn::fqn_compute(project, &file.rel_path, Some(&name));
 
-    buf.add_node(label, &name, &qn, &file.rel_path, start, end, props_json);
-    reg.register(&name, &qn, &file.rel_path, label, start, end);
+    result.nodes.push(ExtractionNode {
+        label: label.to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name.clone(),
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: label.to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
 
     // FTS content
     let content = node_text(node, src);
-    buf.add_code_content(&qn, content);
+    result.code_snippets.push((qn.clone(), content.to_owned()));
 
     // Methods inside class body
     if let Some(body) = node.child_by_field_name("body") {
         for j in 0..body.child_count() {
             let child = body.child(j).unwrap();
             if child.kind() == "method_declaration" {
-                extract_method(
-                    buf,
-                    reg,
+                extract_method_parallel(
+                    result,
                     project,
                     file,
                     src,
@@ -247,24 +268,49 @@ fn extract_class(
 
     // INHERITS / IMPLEMENTS edges
     if let Some(sc) = node.child_by_field_name("superclass") {
-        // superclass node wraps the type
         for k in 0..sc.child_count() {
             let t = sc.child(k).unwrap();
             if t.kind() == "type_identifier" || t.kind() == "generic_type" {
                 let parent = first_type_name(&t, src);
                 if !parent.is_empty() {
                     let tgt = format!("{project}.{parent}");
-                    buf.add_edge_by_qn(&qn, &tgt, "INHERITS", None);
+                    result.edges.push(ExtractionEdge {
+                        source_qn: qn.clone(),
+                        target_qn: tgt,
+                        edge_type: "INHERITS".to_owned(),
+                        properties_json: None,
+                        edge_source: codryn_graph_buffer::EdgeSource::AstStructural,
+                    });
                 }
             }
         }
     }
     if let Some(si) = node.child_by_field_name("interfaces") {
-        extract_type_list(si, src).iter().for_each(|iface| {
+        for iface in extract_type_list(si, src) {
             let tgt = format!("{project}.{iface}");
-            buf.add_edge_by_qn(&qn, &tgt, "IMPLEMENTS", None);
-        });
+            result.edges.push(ExtractionEdge {
+                source_qn: qn.clone(),
+                target_qn: tgt,
+                edge_type: "IMPLEMENTS".to_owned(),
+                properties_json: None,
+                edge_source: codryn_graph_buffer::EdgeSource::AstStructural,
+            });
+        }
     }
+}
+
+#[allow(dead_code)]
+fn extract_class(
+    buf: &mut GraphBuffer,
+    reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+) {
+    let mut result = ExtractionResult::new();
+    extract_class_parallel(&mut result, project, file, src, node);
+    result.apply(buf, reg);
 }
 
 fn register_class(
@@ -305,9 +351,8 @@ fn register_class(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn extract_method(
-    buf: &mut GraphBuffer,
-    reg: &mut Registry,
+fn extract_method_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -379,12 +424,29 @@ fn extract_method(
     } else {
         Some(serde_json::Value::Object(props).to_string())
     };
-    buf.add_node("Method", &name, &qn, &file.rel_path, start, end, props_json);
-    reg.register(&name, &qn, &file.rel_path, "Method", start, end);
+    result.nodes.push(ExtractionNode {
+        label: "Method".to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name.clone(),
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: "Method".to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
 
     // FTS
     let content = node_text(node, src);
-    buf.add_code_content(&qn, content);
+    result.code_snippets.push((qn.clone(), content.to_owned()));
 
     // Route creation
     if is_controller {
@@ -410,7 +472,13 @@ fn extract_method(
                                 if is_dto_candidate(dto) {
                                     route_props["request_dto_type"] = serde_json::json!(dto);
                                     let dto_qn = format!("{project}.{dto}");
-                                    buf.add_edge_by_qn(&route_qn, &dto_qn, "ACCEPTS_DTO", None);
+                                    result.edges.push(ExtractionEdge {
+                                        source_qn: route_qn.clone(),
+                                        target_qn: dto_qn,
+                                        edge_type: "ACCEPTS_DTO".to_owned(),
+                                        properties_json: None,
+                                        edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                                    });
                                 }
                             }
                         }
@@ -424,21 +492,60 @@ fn extract_method(
             if is_dto_candidate(ret) {
                 route_props["response_dto_type"] = serde_json::json!(ret);
                 let ret_qn = format!("{project}.{ret}");
-                buf.add_edge_by_qn(&route_qn, &ret_qn, "RETURNS_DTO", None);
+                result.edges.push(ExtractionEdge {
+                    source_qn: route_qn.clone(),
+                    target_qn: ret_qn,
+                    edge_type: "RETURNS_DTO".to_owned(),
+                    properties_json: None,
+                    edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                });
             }
 
-            buf.add_node(
-                "Route",
-                &route_name,
-                &route_qn,
-                &file.rel_path,
-                start,
-                end,
-                Some(route_props.to_string()),
-            );
-            buf.add_edge_by_qn(&qn, &route_qn, "HANDLES_ROUTE", None);
+            result.nodes.push(ExtractionNode {
+                label: "Route".to_owned(),
+                name: route_name,
+                qualified_name: route_qn.clone(),
+                file_path: file.rel_path.clone(),
+                start_line: start,
+                end_line: end,
+                properties_json: Some(route_props.to_string()),
+            });
+            result.edges.push(ExtractionEdge {
+                source_qn: qn,
+                target_qn: route_qn,
+                edge_type: "HANDLES_ROUTE".to_owned(),
+                properties_json: None,
+                edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+            });
         }
     }
+}
+
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
+fn extract_method(
+    buf: &mut GraphBuffer,
+    reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    class_base_path: &str,
+    is_controller: bool,
+    class_layer: Option<&str>,
+) {
+    let mut result = ExtractionResult::new();
+    extract_method_parallel(
+        &mut result,
+        project,
+        file,
+        src,
+        node,
+        class_base_path,
+        is_controller,
+        class_layer,
+    );
+    result.apply(buf, reg);
 }
 
 fn get_param_annotations(param: &Node, src: &[u8]) -> Vec<String> {
@@ -589,10 +696,11 @@ fn create_route_for_method(
                     let dto = first_simple_name(unwrap_generic_type(node_text(&pt, src)));
                     if is_dto_candidate(dto) {
                         props["request_dto_type"] = serde_json::json!(dto);
-                        buf.add_edge_by_qn(
+                        buf.add_edge_with_confidence(
                             &route_qn,
                             &format!("{project}.{dto}"),
                             "ACCEPTS_DTO",
+                            codryn_graph_buffer::EdgeSource::DedicatedAdapter,
                             None,
                         );
                     }
@@ -605,7 +713,13 @@ fn create_route_for_method(
         let ret = first_simple_name(unwrap_generic_type(node_text(&rt, src)));
         if is_dto_candidate(ret) {
             props["response_dto_type"] = serde_json::json!(ret);
-            buf.add_edge_by_qn(&route_qn, &format!("{project}.{ret}"), "RETURNS_DTO", None);
+            buf.add_edge_with_confidence(
+                &route_qn,
+                &format!("{project}.{ret}"),
+                "RETURNS_DTO",
+                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                None,
+            );
         }
     }
     buf.add_node(
@@ -617,7 +731,13 @@ fn create_route_for_method(
         e,
         Some(props.to_string()),
     );
-    buf.add_edge_by_qn(&method_qn, &route_qn, "HANDLES_ROUTE", None);
+    buf.add_edge_with_confidence(
+        &method_qn,
+        &route_qn,
+        "HANDLES_ROUTE",
+        codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+        None,
+    );
 }
 
 fn find_mapping(anns: &[String], node: &Node, src: &[u8]) -> Option<(String, String)> {

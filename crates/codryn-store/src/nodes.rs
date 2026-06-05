@@ -1,7 +1,8 @@
 use crate::node_from_row;
 use crate::types::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{params, OptionalExtension};
+use std::collections::HashMap;
 
 impl crate::Store {
     // ── Nodes ─────────────────────────────────────────────────
@@ -147,15 +148,24 @@ impl crate::Store {
         if nodes.is_empty() {
             return Ok(vec![]);
         }
-        let tx = self.conn.unchecked_transaction()?;
+        if self.is_bulk_mode() {
+            self.conn
+                .execute_batch("BEGIN IMMEDIATE")
+                .context("failed to begin immediate transaction for insert_nodes_batch")?;
+        } else {
+            self.conn
+                .execute_batch("BEGIN")
+                .context("failed to begin transaction for insert_nodes_batch")?;
+        }
         let mut results = Vec::with_capacity(nodes.len());
-        {
-            let mut insert = tx.prepare(
+        let commit_result = (|| -> Result<()> {
+            let mut insert = self.conn.prepare(
                 "INSERT OR IGNORE INTO nodes (project, label, name, qualified_name, file_path, start_line, end_line, properties) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id",
             )?;
-            let mut select =
-                tx.prepare("SELECT id FROM nodes WHERE project = ?1 AND qualified_name = ?2")?;
+            let mut select = self
+                .conn
+                .prepare("SELECT id FROM nodes WHERE project = ?1 AND qualified_name = ?2")?;
             for n in nodes {
                 let id: i64 = match insert.query_row(
                     params![
@@ -177,9 +187,20 @@ impl crate::Store {
                 };
                 results.push((n.qualified_name.clone(), id));
             }
+            Ok(())
+        })();
+        match commit_result {
+            Ok(()) => {
+                self.conn
+                    .execute_batch("COMMIT")
+                    .context("failed to commit insert_nodes_batch transaction")?;
+                Ok(results)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
         }
-        tx.commit()?;
-        Ok(results)
     }
 
     pub fn search_nodes_filtered(
@@ -331,14 +352,18 @@ impl crate::Store {
         if updates.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to begin transaction for update_node_properties_batch")?;
         {
             let mut stmt = tx.prepare("UPDATE nodes SET properties = ?1 WHERE id = ?2")?;
             for (node_id, properties) in updates {
                 stmt.execute(params![properties, node_id])?;
             }
         }
-        tx.commit()?;
+        tx.commit()
+            .context("failed to commit update_node_properties_batch transaction")?;
         Ok(())
     }
 
@@ -349,5 +374,146 @@ impl crate::Store {
         )?;
         let rows = stmt.query_map(params![project, name, limit], node_from_row)?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Resolve multiple QN suffixes in a single query using a temp table.
+    /// Creates a temp table of suffixes, JOINs against nodes, and returns
+    /// matches. Handles ambiguous matches by preferring exact name matches.
+    pub fn resolve_qns_suffix_batch(
+        &self,
+        project: &str,
+        suffixes: &[&str],
+    ) -> Result<HashMap<String, i64>> {
+        if suffixes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Create temp table
+        self.conn
+            .execute_batch("CREATE TEMP TABLE IF NOT EXISTS _batch_suffixes (suffix TEXT NOT NULL)")
+            .context("failed to create temp table _batch_suffixes")?;
+
+        // Clear any previous data
+        self.conn
+            .execute("DELETE FROM _batch_suffixes", [])
+            .context("failed to clear _batch_suffixes")?;
+
+        // Insert all suffixes into the temp table (chunked for safety)
+        {
+            let mut insert_stmt = self
+                .conn
+                .prepare("INSERT INTO _batch_suffixes (suffix) VALUES (?1)")
+                .context("failed to prepare insert into _batch_suffixes")?;
+            for suffix in suffixes {
+                insert_stmt.execute(params![suffix])?;
+            }
+        }
+
+        // JOIN against nodes: find candidates where node name matches the suffix
+        // or qualified_name ends with '.suffix'
+        let mut stmt = self.conn.prepare(
+            "SELECT s.suffix, n.id, n.name, n.qualified_name \
+             FROM _batch_suffixes s \
+             JOIN nodes n ON n.project = ?1 \
+               AND (n.name = s.suffix OR n.qualified_name LIKE '%.' || s.suffix)",
+        )?;
+
+        // Collect all candidates grouped by suffix
+        let rows = stmt.query_map(params![project], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+
+        // Group candidates by suffix
+        let mut candidates: HashMap<String, Vec<(i64, String, String)>> = HashMap::new();
+        for row in rows {
+            let (suffix, id, name, qn) =
+                row.context("failed to read row in resolve_qns_suffix_batch")?;
+            candidates.entry(suffix).or_default().push((id, name, qn));
+        }
+
+        // Resolve ambiguous matches:
+        // 1. Prefer exact name match (node.name == suffix)
+        // 2. If still ambiguous, take the first candidate (lowest id)
+        let mut result = HashMap::with_capacity(candidates.len());
+        for (suffix, mut cands) in candidates {
+            if cands.is_empty() {
+                continue;
+            }
+            if cands.len() == 1 {
+                result.insert(suffix, cands[0].0);
+            } else {
+                // Prefer exact name matches
+                let exact: Vec<&(i64, String, String)> = cands
+                    .iter()
+                    .filter(|(_, name, _)| *name == suffix)
+                    .collect();
+                if exact.len() == 1 {
+                    result.insert(suffix, exact[0].0);
+                } else if !exact.is_empty() {
+                    // Multiple exact name matches — take lowest id
+                    let min_id = exact.iter().map(|(id, _, _)| *id).min().unwrap();
+                    result.insert(suffix, min_id);
+                } else {
+                    // No exact name match — sort by id and take lowest
+                    cands.sort_by_key(|(id, _, _)| *id);
+                    result.insert(suffix, cands[0].0);
+                }
+            }
+        }
+
+        // Clean up temp table
+        let _ = self.conn.execute("DELETE FROM _batch_suffixes", []);
+
+        Ok(result)
+    }
+
+    /// Resolve multiple qualified names to node IDs in a single query.
+    /// Uses `WHERE qualified_name IN (?, ?, ...)` with chunking for
+    /// SQLite's variable limit (999 per query).
+    pub fn resolve_qns_batch(&self, project: &str, qns: &[&str]) -> Result<HashMap<String, i64>> {
+        if qns.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut result = HashMap::with_capacity(qns.len());
+
+        // Chunk at 500 to stay well under SQLite's 999 variable limit
+        // (1 variable used for project + up to 500 for the IN clause = 501 max)
+        for chunk in qns.chunks(500) {
+            let placeholders: String = (0..chunk.len())
+                .map(|i| format!("?{}", i + 2))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let sql = format!(
+                "SELECT qualified_name, id FROM nodes WHERE project = ?1 AND qualified_name IN ({})",
+                placeholders
+            );
+
+            let mut stmt = self.conn.prepare(&sql)?;
+
+            let mut params_vec: Vec<&dyn rusqlite::types::ToSql> =
+                Vec::with_capacity(chunk.len() + 1);
+            params_vec.push(&project as &dyn rusqlite::types::ToSql);
+            for qn in chunk {
+                params_vec.push(qn as &dyn rusqlite::types::ToSql);
+            }
+
+            let rows = stmt.query_map(&*params_vec, |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+
+            for row in rows {
+                let (qn, id) = row.context("failed to read row in resolve_qns_batch")?;
+                result.insert(qn, id);
+            }
+        }
+
+        Ok(result)
     }
 }

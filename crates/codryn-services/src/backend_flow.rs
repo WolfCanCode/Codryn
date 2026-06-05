@@ -79,15 +79,9 @@ pub struct FlowGraphEdge {
 fn detect_layer(file_path: &str, name: &str) -> &'static str {
     let fp = file_path.to_lowercase();
     let n = name.to_lowercase();
-    if fp.contains("lambda")
-        || fp.contains("/handlers/")
-        || fp.contains("\\handlers\\")
-        || fp.contains("serverless")
-    {
-        return "handler";
-    }
     if fp.contains("controller")
         || fp.contains("/api/")
+        || fp.contains("handler")
         || n.ends_with("controller")
         || n.ends_with("resource")
     {
@@ -119,7 +113,6 @@ fn detect_layer_from_props(props_json: Option<&str>, file_path: &str, name: &str
             if let Some(l) = v.get("layer").and_then(|l| l.as_str()) {
                 return match l {
                     "controller" => "controller",
-                    "handler" => "handler",
                     "service" => "service",
                     "repository" => "repository",
                     "dto" | "entity" | "model" => "dto",
@@ -164,19 +157,15 @@ impl BackendFlowService {
             })
             .collect();
 
-        // Step 2: Find the Route node by its dedicated QN.
-        // route.route_node_qn is always the Route node's own QN (set by find_routes from the
-        // Route label node), regardless of which framework created it.
-        let route_node = store
-            .find_node_by_qn(project, &route.route_node_qn)?
-            .or_else(|| {
-                // Fallback: full-text search by path, take first Route label match.
-                store
-                    .search_nodes(project, &route.path, 10)
-                    .ok()?
-                    .into_iter()
-                    .find(|n| n.label == "Route")
-            });
+        // Step 2: Find the route node to get its ID for edge traversal
+        let route_qn = format!("{}.route.{}.{}", project, route.method, route.path);
+        let route_node = store.find_node_by_qn(project, &route_qn)?.or_else(|| {
+            store
+                .search_nodes(project, &route.path, 5)
+                .ok()?
+                .into_iter()
+                .find(|n| n.label == "Route")
+        });
         let route_node =
             route_node.ok_or_else(|| anyhow::anyhow!("Route node not found in graph"))?;
 
@@ -322,16 +311,12 @@ impl BackendFlowService {
 
         // Step 8: Compute confidence and flow_type
         let has_controller = graph_nodes.iter().any(|n| n.layer == "controller");
-        let has_handler = graph_nodes.iter().any(|n| n.layer == "handler");
         let has_service = !services.is_empty();
         let has_repo = !repositories.is_empty();
 
         let mut layers_found = Vec::new();
         if has_controller {
             layers_found.push("controller");
-        }
-        if has_handler {
-            layers_found.push("handler");
         }
         if has_service {
             layers_found.push("service");
@@ -565,51 +550,5 @@ mod tests {
                 .unwrap();
         assert_eq!(result.entry.path, "/health");
         assert!(result.summary.confidence < 0.95);
-    }
-
-    #[test]
-    fn test_trace_lambda_style_handler() {
-        let s = setup_store();
-        s.upsert_file_hash_batch(&[FileHash {
-            project: "p".into(),
-            rel_path: "src/handlers/api.ts".into(),
-            sha256: "d".into(),
-            mtime_ns: 0,
-            size: 1,
-        }])
-        .unwrap();
-
-        let route_id = insert_node(
-            &s,
-            "GET /items",
-            "p.lambda.route.GET.items",
-            "Route",
-            "src/handlers/api.ts",
-            Some(r#"{"http_method":"GET","path":"/items","source":"lambda"}"#),
-        );
-        let handler_id = insert_node(
-            &s,
-            "handler",
-            "p.src.handlers.api.handler",
-            "Function",
-            "src/handlers/api.ts",
-            None,
-        );
-        insert_edge(&s, handler_id, route_id, "HANDLES_ROUTE");
-        let util_id = insert_node(
-            &s,
-            "parseItems",
-            "p.parseItems",
-            "Function",
-            "src/handlers/util.ts",
-            None,
-        );
-        insert_edge(&s, handler_id, util_id, "CALLS");
-
-        let result =
-            BackendFlowService::trace(&s, "p", Some("/items"), None, Some("GET"), 5, false)
-                .unwrap();
-        assert_eq!(result.entry.path, "/items");
-        assert!(result.summary.flow_type.contains("handler"));
     }
 }

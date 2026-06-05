@@ -4,7 +4,277 @@ use codryn_graph_buffer::GraphBuffer;
 use codryn_treesitter::TsSymbol;
 use regex::Regex;
 
-use crate::registry::{is_stdlib_type, Registry, RegistryEntry, TypeRegistry};
+use crate::registry::{analyze_scope, is_stdlib_type, Registry, RegistryEntry, TypeRegistry};
+
+// ── Parallel Type Extraction (Task 6.1) ──────────────────────
+
+/// Per-file type extraction result (no shared mutable state).
+/// Collects type annotations and import relationships for a single file,
+/// ready to be merged into a `TypeRegistry` in a serial phase.
+#[derive(Debug, Clone, Default)]
+pub struct FileTypeResult {
+    /// Type mappings: (file_path, symbol_name, resolved_type)
+    pub types: Vec<(String, String, String)>,
+    /// Import relationships: (importer_file, imported_file)
+    pub imports: Vec<(String, String)>,
+}
+
+/// Pure function that extracts type annotations and import relationships from a file.
+///
+/// Combines the logic from `extract_type_assigns` (tree-sitter symbol types) and
+/// `registry::analyze_scope` (regex-based scope analysis) into a single pure function
+/// that returns results without mutating any shared state.
+///
+/// This is safe to call from multiple threads in parallel via `rayon::par_iter()`.
+pub fn extract_file_types(file: &DiscoveredFile, source: &str) -> FileTypeResult {
+    let mut result = FileTypeResult::default();
+    let file_path = &file.rel_path;
+    let lang = file.language;
+
+    // 1. Extract type assignments from tree-sitter symbols (like extract_type_assigns)
+    if let Some(symbols) = codryn_treesitter::extract_symbols(lang, source) {
+        for sym in &symbols {
+            // Register function return types
+            if let Some(ref ret_type) = sym.return_type {
+                if !is_stdlib_type(lang, ret_type) {
+                    result.types.push((
+                        file_path.clone(),
+                        format!("{}::return", sym.name),
+                        ret_type.clone(),
+                    ));
+                }
+            }
+            // Register parameter types
+            for param in &sym.parameters {
+                if let Some(ref type_name) = param.type_name {
+                    if !is_stdlib_type(lang, type_name) {
+                        result.types.push((
+                            file_path.clone(),
+                            format!("{}::{}", sym.name, param.name),
+                            type_name.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Analyze scope for variable type annotations (like registry::analyze_scope)
+    // We use a temporary TypeRegistry to collect results, then extract them.
+    let mut temp_reg = TypeRegistry::new();
+    analyze_scope(&mut temp_reg, file_path, source, lang);
+
+    // Extract types from the temporary registry
+    for ((fp, sym_name), entry) in temp_reg.drain_types() {
+        result.types.push((fp, sym_name, entry.resolved_type));
+    }
+
+    // 3. Extract import relationships from source code
+    extract_imports_from_source(&mut result, file_path, source, lang);
+
+    result
+}
+
+/// Extract import relationships from source code for TypeRegistry cross-file resolution.
+/// This identifies which files import from which other files based on import statements.
+fn extract_imports_from_source(
+    result: &mut FileTypeResult,
+    file_path: &str,
+    source: &str,
+    lang: Language,
+) {
+    use std::sync::LazyLock;
+
+    match lang {
+        Language::TypeScript | Language::Tsx | Language::JavaScript => {
+            // import ... from 'path' or import ... from "path"
+            static IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+                Regex::new(r#"(?:import|export)\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap()
+            });
+            // require('path') or require("path")
+            static REQUIRE_RE: LazyLock<Regex> =
+                LazyLock::new(|| Regex::new(r#"require\s*\(\s*['"]([^'"]+)['"]\s*\)"#).unwrap());
+
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = IMPORT_FROM_RE.captures(trimmed) {
+                    let import_path = caps.get(1).unwrap().as_str();
+                    if import_path.starts_with('.') {
+                        // Relative import — resolve to a file path
+                        let resolved = resolve_relative_import(file_path, import_path);
+                        result.imports.push((file_path.to_owned(), resolved));
+                    }
+                }
+                if let Some(caps) = REQUIRE_RE.captures(trimmed) {
+                    let import_path = caps.get(1).unwrap().as_str();
+                    if import_path.starts_with('.') {
+                        let resolved = resolve_relative_import(file_path, import_path);
+                        result.imports.push((file_path.to_owned(), resolved));
+                    }
+                }
+            }
+        }
+        Language::Python => {
+            // from .module import ... or from ..package.module import ...
+            static FROM_IMPORT_RE: LazyLock<Regex> =
+                LazyLock::new(|| Regex::new(r"^from\s+(\.[\w.]*)\s+import").unwrap());
+
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = FROM_IMPORT_RE.captures(trimmed) {
+                    let module_path = caps.get(1).unwrap().as_str();
+                    let resolved = resolve_python_relative_import(file_path, module_path);
+                    if let Some(resolved) = resolved {
+                        result.imports.push((file_path.to_owned(), resolved));
+                    }
+                }
+            }
+        }
+        Language::Java | Language::Kotlin => {
+            // import com.example.package.ClassName;
+            static JAVA_IMPORT_RE: LazyLock<Regex> =
+                LazyLock::new(|| Regex::new(r"^import\s+([\w.]+);?").unwrap());
+
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = JAVA_IMPORT_RE.captures(trimmed) {
+                    let import_path = caps.get(1).unwrap().as_str();
+                    // Convert package path to a relative file path approximation
+                    let file_approx = import_path.replace('.', "/") + ".java";
+                    result.imports.push((file_path.to_owned(), file_approx));
+                }
+            }
+        }
+        Language::Rust => {
+            // use crate::module::item; or use super::module::item;
+            static USE_RE: LazyLock<Regex> =
+                LazyLock::new(|| Regex::new(r"^use\s+(?:crate|super)(::[\w:]+)").unwrap());
+
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = USE_RE.captures(trimmed) {
+                    let use_path = caps.get(1).unwrap().as_str();
+                    // Convert :: path to a rough file path
+                    let parts: Vec<&str> = use_path.split("::").filter(|s| !s.is_empty()).collect();
+                    if !parts.is_empty() {
+                        let module_path = parts[..parts.len().min(2)].join("/") + ".rs";
+                        result.imports.push((file_path.to_owned(), module_path));
+                    }
+                }
+            }
+        }
+        Language::Go => {
+            // import "path/to/package" or within import block
+            static GO_IMPORT_RE: LazyLock<Regex> =
+                LazyLock::new(|| Regex::new(r#"^\s*(?:\w+\s+)?"([^"]+)""#).unwrap());
+
+            let mut in_import_block = false;
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("import (") {
+                    in_import_block = true;
+                    continue;
+                }
+                if in_import_block && trimmed == ")" {
+                    in_import_block = false;
+                    continue;
+                }
+                if in_import_block || trimmed.starts_with("import ") {
+                    if let Some(caps) = GO_IMPORT_RE.captures(trimmed) {
+                        let import_path = caps.get(1).unwrap().as_str();
+                        // Only track project-relative imports (not stdlib)
+                        if import_path.contains('/')
+                            && !import_path.starts_with("fmt")
+                            && !import_path.starts_with("os")
+                            && !import_path.starts_with("io")
+                            && !import_path.starts_with("net")
+                            && !import_path.starts_with("encoding")
+                            && !import_path.starts_with("strings")
+                            && !import_path.starts_with("strconv")
+                            && !import_path.starts_with("sync")
+                            && !import_path.starts_with("context")
+                            && !import_path.starts_with("time")
+                            && !import_path.starts_with("math")
+                            && !import_path.starts_with("sort")
+                            && !import_path.starts_with("log")
+                            && !import_path.starts_with("path")
+                            && !import_path.starts_with("bytes")
+                            && !import_path.starts_with("bufio")
+                            && !import_path.starts_with("errors")
+                            && !import_path.starts_with("regexp")
+                            && !import_path.starts_with("testing")
+                            && !import_path.starts_with("reflect")
+                            && !import_path.starts_with("runtime")
+                            && !import_path.starts_with("crypto")
+                            && !import_path.starts_with("database")
+                            && !import_path.starts_with("html")
+                            && !import_path.starts_with("text")
+                        {
+                            result
+                                .imports
+                                .push((file_path.to_owned(), import_path.to_owned()));
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Resolve a relative import path (e.g., `./utils` or `../shared/types`) relative to the
+/// importing file's directory.
+fn resolve_relative_import(importer_file: &str, import_path: &str) -> String {
+    use std::path::Path;
+    let importer_dir = Path::new(importer_file).parent().unwrap_or(Path::new(""));
+    let resolved = importer_dir.join(import_path);
+    // Normalize the path (remove ./ and resolve ../)
+    let normalized = normalize_path(&resolved.to_string_lossy());
+    normalized
+}
+
+/// Resolve a Python relative import (e.g., `.module` or `..package.module`).
+fn resolve_python_relative_import(importer_file: &str, module_path: &str) -> Option<String> {
+    use std::path::Path;
+    let dots = module_path.chars().take_while(|&c| c == '.').count();
+    let module_part = &module_path[dots..];
+
+    let importer_dir = Path::new(importer_file).parent()?;
+    let mut base = importer_dir.to_path_buf();
+    // Go up (dots - 1) directories (one dot = same package)
+    for _ in 1..dots {
+        base = base.parent()?.to_path_buf();
+    }
+
+    if module_part.is_empty() {
+        Some(base.join("__init__.py").to_string_lossy().into_owned())
+    } else {
+        let file_path = module_part.replace('.', "/") + ".py";
+        Some(base.join(file_path).to_string_lossy().into_owned())
+    }
+}
+
+/// Simple path normalization: remove redundant `.` and resolve `..` components.
+fn normalize_path(path: &str) -> String {
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut result: Vec<&str> = Vec::new();
+    for part in parts {
+        match part {
+            "." | "" => {
+                if result.is_empty() && part.is_empty() {
+                    // Preserve leading empty for absolute paths
+                }
+            }
+            ".." => {
+                if !result.is_empty() {
+                    result.pop();
+                }
+            }
+            _ => result.push(part),
+        }
+    }
+    result.join("/")
+}
 
 /// Holds the result of extracting a single file, without mutating shared state.
 /// Nodes, registry entries, and code snippets are collected here and merged later.
@@ -16,6 +286,18 @@ pub struct ExtractionResult {
     pub registry_entries: Vec<(String, RegistryEntry)>,
     /// Code snippets for FTS indexing: (qualified_name, content)
     pub code_snippets: Vec<(String, String)>,
+    /// Edges to add to the GraphBuffer: (source_qn, target_qn, edge_type, properties_json)
+    pub edges: Vec<ExtractionEdge>,
+}
+
+/// An edge extracted from a file, ready to be added to a GraphBuffer via QN resolution.
+#[derive(Debug, Clone)]
+pub struct ExtractionEdge {
+    pub source_qn: String,
+    pub target_qn: String,
+    pub edge_type: String,
+    pub properties_json: Option<String>,
+    pub edge_source: codryn_graph_buffer::EdgeSource,
 }
 
 /// A node extracted from a file, ready to be added to a GraphBuffer.
@@ -30,12 +312,19 @@ pub struct ExtractionNode {
     pub properties_json: Option<String>,
 }
 
+impl Default for ExtractionResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtractionResult {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
             registry_entries: Vec::new(),
             code_snippets: Vec::new(),
+            edges: Vec::new(),
         }
     }
 
@@ -64,6 +353,15 @@ impl ExtractionResult {
         }
         for (qn, content) in &self.code_snippets {
             buf.add_code_content(qn, content);
+        }
+        for edge in &self.edges {
+            buf.add_edge_with_confidence(
+                &edge.source_qn,
+                &edge.target_qn,
+                &edge.edge_type,
+                edge.edge_source,
+                edge.properties_json.clone(),
+            );
         }
     }
 
@@ -457,10 +755,37 @@ fn build_metadata_json(sym: &TsSymbol, _source_lines: &[&str], rel_path: &str) -
             }));
     m.insert("is_entry_point".into(), serde_json::json!(is_entry_point));
 
-    // Compute complexity from body text
-    if let Some(ref body) = sym.body_text {
-        let complexity = codryn_foundation::complexity::cyclomatic_complexity(body);
-        m.insert("complexity".into(), serde_json::json!(complexity));
+    // Compute complexity from body text (only for Function/Method nodes)
+    if matches!(sym.label.as_str(), "Function" | "Method") {
+        if let Some(ref body) = sym.body_text {
+            let result = crate::complexity::compute_complexity_from_text(body);
+            m.insert(
+                "cyclomatic_complexity".into(),
+                serde_json::json!(result.cyclomatic),
+            );
+            m.insert(
+                "cognitive_complexity".into(),
+                serde_json::json!(result.cognitive),
+            );
+        }
+    }
+
+    // Detect doc comments (only for Function/Method/Class/Interface nodes)
+    if matches!(
+        sym.label.as_str(),
+        "Function" | "Method" | "Class" | "Interface"
+    ) {
+        // Primary: use docstring extracted by the tree-sitter walker
+        let has_docs = sym.docstring.is_some();
+        let doc_lines = sym
+            .docstring
+            .as_ref()
+            .map(|d| d.lines().count() as u32)
+            .unwrap_or(0);
+        m.insert("has_docs".into(), serde_json::json!(has_docs));
+        if doc_lines > 0 {
+            m.insert("doc_lines".into(), serde_json::json!(doc_lines));
+        }
     }
 
     // Line count

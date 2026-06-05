@@ -3,8 +3,9 @@ use codryn_foundation::fqn;
 use codryn_graph_buffer::GraphBuffer;
 use tree_sitter::{Node, Parser};
 
+use crate::extraction::{ExtractionEdge, ExtractionNode, ExtractionResult};
 use crate::go_common;
-use crate::registry::Registry;
+use crate::registry::{Registry, RegistryEntry};
 
 fn make_parser() -> Option<Parser> {
     let mut parser = Parser::new();
@@ -48,42 +49,33 @@ fn test_kind(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Extract definitions from a Go file using tree-sitter AST.
-pub fn extract_go(buf: &mut GraphBuffer, reg: &mut Registry, project: &str, file: &DiscoveredFile) {
+/// Extract definitions from a Go file using tree-sitter AST (parallel-safe).
+/// Returns an `ExtractionResult` with nodes, registry entries, code snippets, and edges
+/// without mutating any shared state. Safe to call from multiple threads.
+pub fn extract_go_parallel(project: &str, file: &DiscoveredFile) -> Option<ExtractionResult> {
     let source = match std::fs::read_to_string(&file.abs_path) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return Some(ExtractionResult::new()),
     };
-    let mut parser = match make_parser() {
-        Some(p) => p,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
-    let tree = match parser.parse(&source, None) {
-        Some(t) => t,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
+    let mut parser = make_parser()?;
+    let tree = parser.parse(&source, None)?;
 
     let src = source.as_bytes();
     let root = tree.root_node();
     let is_test_file = file.rel_path.ends_with("_test.go");
+    let mut result = ExtractionResult::new();
 
     for i in 0..root.child_count() {
         let child = root.child(i).unwrap();
         match child.kind() {
             "type_declaration" => {
-                extract_type_decl(buf, reg, project, file, src, &child, is_test_file);
+                extract_type_decl_parallel(&mut result, project, file, src, &child, is_test_file);
             }
             "function_declaration" => {
-                extract_function(buf, reg, project, file, src, &child, is_test_file);
+                extract_function_parallel(&mut result, project, file, src, &child, is_test_file);
             }
             "method_declaration" => {
-                extract_method(buf, reg, project, file, src, &child, is_test_file);
+                extract_method_parallel(&mut result, project, file, src, &child, is_test_file);
             }
             _ => {}
         }
@@ -91,7 +83,7 @@ pub fn extract_go(buf: &mut GraphBuffer, reg: &mut Registry, project: &str, file
 
     // Ginkgo BDD specs: Describe/Context/It/When/BeforeEach/AfterEach
     if is_test_file {
-        extract_ginkgo_specs(buf, reg, project, file, src, &root, &[]);
+        extract_ginkgo_specs_parallel(&mut result, project, file, src, &root, &[]);
     }
 
     // Module node
@@ -101,15 +93,29 @@ pub fn extract_go(buf: &mut GraphBuffer, reg: &mut Registry, project: &str, file
         .and_then(|s| s.to_str())
         .unwrap_or(&file.rel_path);
     let lines: Vec<&str> = source.lines().collect();
-    buf.add_node(
-        "Module",
-        module_name,
-        &module_qn,
-        &file.rel_path,
-        1,
-        lines.len() as i32,
-        None,
-    );
+    result.nodes.push(ExtractionNode {
+        label: "Module".to_owned(),
+        name: module_name.to_owned(),
+        qualified_name: module_qn,
+        file_path: file.rel_path.clone(),
+        start_line: 1,
+        end_line: lines.len() as i32,
+        properties_json: None,
+    });
+
+    Some(result)
+}
+
+/// Extract definitions from a Go file using tree-sitter AST.
+/// Thin wrapper around `extract_go_parallel` that applies results to buf/reg.
+pub fn extract_go(buf: &mut GraphBuffer, reg: &mut Registry, project: &str, file: &DiscoveredFile) {
+    match extract_go_parallel(project, file) {
+        Some(result) => result.apply(buf, reg),
+        None => {
+            // Parser unavailable or parse failed — fall back to generic extraction
+            super::extraction::extract_file(buf, reg, project, file);
+        }
+    }
 }
 
 /// Register-only variant for incremental reindex (unchanged files).
@@ -163,9 +169,23 @@ pub fn register_go(reg: &mut Registry, project: &str, file: &DiscoveredFile) {
 
 // ── Type declarations (struct, interface) ─────────────
 
+#[allow(dead_code)]
 fn extract_type_decl(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    is_test_file: bool,
+) {
+    let mut result = ExtractionResult::new();
+    extract_type_decl_parallel(&mut result, project, file, src, node, is_test_file);
+    result.apply(buf, reg);
+}
+
+fn extract_type_decl_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -214,11 +234,30 @@ fn extract_type_decl(
         }
 
         let props_json = Some(serde_json::Value::Object(props).to_string());
-        buf.add_node(label, &name, &qn, &file.rel_path, start, end, props_json);
-        reg.register(&name, &qn, &file.rel_path, label, start, end);
+        result.nodes.push(ExtractionNode {
+            label: label.to_owned(),
+            name: name.clone(),
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            start_line: start,
+            end_line: end,
+            properties_json: props_json,
+        });
+        result.registry_entries.push((
+            name.clone(),
+            RegistryEntry {
+                qualified_name: qn.clone(),
+                file_path: file.rel_path.clone(),
+                label: label.to_owned(),
+                start_line: start,
+                end_line: end,
+            },
+        ));
 
         // FTS content
-        buf.add_code_content(&qn, node_text(&spec, src));
+        result
+            .code_snippets
+            .push((qn, node_text(&spec, src).to_owned()));
     }
 }
 
@@ -270,9 +309,23 @@ fn extract_interface_methods(iface_node: &Node, src: &[u8]) -> Vec<String> {
 
 // ── Functions and methods ─────────────────────────────
 
+#[allow(dead_code)]
 fn extract_function(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    is_test_file: bool,
+) {
+    let mut result = ExtractionResult::new();
+    extract_function_parallel(&mut result, project, file, src, node, is_test_file);
+    result.apply(buf, reg);
+}
+
+fn extract_function_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -308,22 +361,47 @@ fn extract_function(
     } else {
         Some(serde_json::Value::Object(props).to_string())
     };
-    buf.add_node(
-        "Function",
-        &name,
-        &qn,
-        &file.rel_path,
-        start,
-        end,
-        props_json,
-    );
-    reg.register(&name, &qn, &file.rel_path, "Function", start, end);
-    buf.add_code_content(&qn, node_text(node, src));
+    result.nodes.push(ExtractionNode {
+        label: "Function".to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name,
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: "Function".to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
+    result
+        .code_snippets
+        .push((qn, node_text(node, src).to_owned()));
 }
 
+#[allow(dead_code)]
 fn extract_method(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    is_test_file: bool,
+) {
+    let mut result = ExtractionResult::new();
+    extract_method_parallel(&mut result, project, file, src, node, is_test_file);
+    result.apply(buf, reg);
+}
+
+fn extract_method_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -373,14 +451,39 @@ fn extract_method(
     } else {
         Some(serde_json::Value::Object(props).to_string())
     };
-    buf.add_node("Method", &name, &qn, &file.rel_path, start, end, props_json);
-    reg.register(&name, &qn, &file.rel_path, "Method", start, end);
-    buf.add_code_content(&qn, node_text(node, src));
+    result.nodes.push(ExtractionNode {
+        label: "Method".to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name,
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: "Method".to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
+    result
+        .code_snippets
+        .push((qn.clone(), node_text(node, src).to_owned()));
 
     // CONTAINS edge: struct → method
     if !recv_type.is_empty() {
         let struct_qn = format!("{project}.{recv_type}");
-        buf.add_edge_by_qn(&struct_qn, &qn, "CONTAINS", None);
+        result.edges.push(ExtractionEdge {
+            source_qn: struct_qn,
+            target_qn: qn,
+            edge_type: "CONTAINS".to_owned(),
+            properties_json: None,
+            edge_source: codryn_graph_buffer::EdgeSource::AstStructural,
+        });
     }
 }
 
@@ -397,9 +500,23 @@ const GINKGO_SETUP: &[&str] = &[
     "AfterSuite",
 ];
 
+#[allow(dead_code)]
 fn extract_ginkgo_specs(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    path: &[String],
+) {
+    let mut result = ExtractionResult::new();
+    extract_ginkgo_specs_parallel(&mut result, project, file, src, node, path);
+    result.apply(buf, reg);
+}
+
+fn extract_ginkgo_specs_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -440,12 +557,31 @@ fn extract_ginkgo_specs(
                     })
                     .to_string();
 
-                    buf.add_node("Function", &label, &qn, &file.rel_path, s, e, Some(props));
-                    reg.register(&label, &qn, &file.rel_path, "Function", s, e);
+                    result.nodes.push(ExtractionNode {
+                        label: "Function".to_owned(),
+                        name: label.clone(),
+                        qualified_name: qn.clone(),
+                        file_path: file.rel_path.clone(),
+                        start_line: s,
+                        end_line: e,
+                        properties_json: Some(props),
+                    });
+                    result.registry_entries.push((
+                        label,
+                        RegistryEntry {
+                            qualified_name: qn,
+                            file_path: file.rel_path.clone(),
+                            label: "Function".to_owned(),
+                            start_line: s,
+                            end_line: e,
+                        },
+                    ));
 
                     // Recurse into the closure body for nested specs
                     if let Some(args) = child.child_by_field_name("arguments") {
-                        extract_ginkgo_specs(buf, reg, project, file, src, &args, &full_path);
+                        extract_ginkgo_specs_parallel(
+                            result, project, file, src, &args, &full_path,
+                        );
                     }
                     continue;
                 }
@@ -453,7 +589,7 @@ fn extract_ginkgo_specs(
         }
         // Recurse into non-ginkgo nodes to find nested specs
         if child.child_count() > 0 {
-            extract_ginkgo_specs(buf, reg, project, file, src, &child, path);
+            extract_ginkgo_specs_parallel(result, project, file, src, &child, path);
         }
     }
 }
@@ -684,7 +820,13 @@ fn create_route_node(
 
     // HANDLES_ROUTE edge: handler method → route
     let handler_qn = format!("{project}.{handler_name}");
-    buf.add_edge_by_qn(&handler_qn, &route_qn, "HANDLES_ROUTE", None);
+    buf.add_edge_with_confidence(
+        &handler_qn,
+        &route_qn,
+        "HANDLES_ROUTE",
+        codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+        None,
+    );
 }
 
 // ── Interface satisfaction ─────────────────────────────
@@ -774,7 +916,13 @@ pub fn pass_go_implements(buf: &mut GraphBuffer, files: &[&DiscoveredFile], proj
                     .get(struct_name)
                     .cloned()
                     .unwrap_or_else(|| format!("{project}.{struct_name}"));
-                buf.add_edge_by_qn(&struct_qn, iface_qn, "IMPLEMENTS", None);
+                buf.add_edge_with_confidence(
+                    &struct_qn,
+                    iface_qn,
+                    "IMPLEMENTS",
+                    codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                    None,
+                );
             }
         }
     }

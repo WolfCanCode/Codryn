@@ -51,6 +51,32 @@ impl crate::Store {
         Ok(())
     }
 
+    /// Wipe all indexed data for a project (nodes, edges, file hashes, FTS)
+    /// but keep the project record itself. Used for "clear cache" reindex —
+    /// forces a full rebuild from scratch without losing the project registration.
+    pub fn delete_project_data(&self, name: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM edges WHERE project = ?1", params![name])?;
+        self.conn
+            .execute("DELETE FROM nodes WHERE project = ?1", params![name])?;
+        self.conn
+            .execute("DELETE FROM file_hashes WHERE project = ?1", params![name])?;
+        self.conn
+            .execute("DELETE FROM code_fts WHERE project = ?1", params![name])?;
+        self.conn
+            .execute("DELETE FROM code_blobs WHERE project = ?1", params![name])?;
+        // Clear any stale checkpoints so the next run starts fresh
+        self.conn.execute(
+            "DELETE FROM _index_progress WHERE project = ?1",
+            params![name],
+        )?;
+        tracing::info!(
+            project = name,
+            "store: cleared all project data for fresh reindex"
+        );
+        Ok(())
+    }
+
     pub fn delete_project_edges(&self, project: &str) -> Result<()> {
         self.conn
             .execute("DELETE FROM edges WHERE project = ?1", params![project])?;

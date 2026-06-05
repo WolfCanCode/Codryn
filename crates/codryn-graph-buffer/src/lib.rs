@@ -1,6 +1,69 @@
 use anyhow::Result;
 use codryn_store::{Edge, Node, Store};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Edge derivation source for confidence scoring.
+/// Determines how trustworthy a graph edge is based on how it was derived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EdgeSource {
+    /// Structural edge extracted directly from AST (DEFINES, CONTAINS, DECLARES).
+    AstStructural,
+    /// Name-based relation extracted from AST (CALLS by matching function name only).
+    AstNameMatch,
+    /// Relation resolved through local import/path/module resolver.
+    ImportResolver,
+    /// Relation resolved by a language-specific adapter.
+    DedicatedAdapter,
+    /// Relation resolved by an external language server (tsserver, rust-analyzer, gopls).
+    ExternalLsp,
+    /// Relation confirmed by compiler-native index or equivalent authoritative source.
+    CompilerIndex,
+    /// Relation produced by Aho-Corasick textual matching.
+    AhoCorasickMatch,
+    /// Relation produced by regex matching.
+    RegexMatch,
+    /// Relation produced by fallback heuristic logic.
+    Heuristic,
+}
+
+impl EdgeSource {
+    /// Returns the confidence value associated with this edge source.
+    pub fn confidence(self) -> f64 {
+        match self {
+            EdgeSource::CompilerIndex => 0.98,
+            EdgeSource::ExternalLsp => 0.95,
+            EdgeSource::AstStructural => 0.90,
+            EdgeSource::DedicatedAdapter => 0.85,
+            EdgeSource::ImportResolver => 0.82,
+            EdgeSource::AstNameMatch => 0.60,
+            EdgeSource::AhoCorasickMatch => 0.55,
+            EdgeSource::RegexMatch => 0.45,
+            EdgeSource::Heuristic => 0.30,
+        }
+    }
+
+    /// Returns the string representation used for storage.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EdgeSource::AstStructural => "AstStructural",
+            EdgeSource::AstNameMatch => "AstNameMatch",
+            EdgeSource::ImportResolver => "ImportResolver",
+            EdgeSource::DedicatedAdapter => "DedicatedAdapter",
+            EdgeSource::ExternalLsp => "ExternalLsp",
+            EdgeSource::CompilerIndex => "CompilerIndex",
+            EdgeSource::AhoCorasickMatch => "AhoCorasickMatch",
+            EdgeSource::RegexMatch => "RegexMatch",
+            EdgeSource::Heuristic => "Heuristic",
+        }
+    }
+}
+
+impl std::fmt::Display for EdgeSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// In-memory staging buffer for nodes and edges before flushing to the store.
 pub struct GraphBuffer {
@@ -75,6 +138,7 @@ impl GraphBuffer {
     }
 
     /// Add an edge with already-resolved IDs.
+    /// Defaults to `EdgeSource::AstNameMatch` for backward compatibility.
     pub fn add_edge(
         &mut self,
         source_id: i64,
@@ -90,6 +154,80 @@ impl GraphBuffer {
             edge_type: edge_type.to_owned(),
             properties_json,
         });
+    }
+
+    /// Add an edge with already-resolved IDs and a specific EdgeSource.
+    /// The confidence and edge_source are embedded in properties_json for extraction at flush time.
+    pub fn add_edge_with_source(
+        &mut self,
+        source_id: i64,
+        target_id: i64,
+        edge_type: &str,
+        source: EdgeSource,
+        properties_json: Option<String>,
+    ) {
+        let mut props = if let Some(ref p) = properties_json {
+            serde_json::from_str::<serde_json::Value>(p).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+        props["_confidence"] = serde_json::json!(source.confidence());
+        props["_edge_source"] = serde_json::json!(source.as_str());
+
+        self.edges.push(Edge {
+            id: 0,
+            project: self.project.clone(),
+            source_id,
+            target_id,
+            edge_type: edge_type.to_owned(),
+            properties_json: Some(props.to_string()),
+        });
+    }
+
+    /// Add an edge with confidence metadata from a specific EdgeSource.
+    /// The confidence value and edge_source are stored in the properties_json.
+    pub fn add_edge_with_confidence(
+        &mut self,
+        source_qn: &str,
+        target_qn: &str,
+        edge_type: &str,
+        source: EdgeSource,
+        properties_json: Option<String>,
+    ) {
+        // Merge confidence metadata into properties
+        let mut props = if let Some(ref p) = properties_json {
+            serde_json::from_str::<serde_json::Value>(p).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+        props["_confidence"] = serde_json::json!(source.confidence());
+        props["_edge_source"] = serde_json::json!(source.as_str());
+
+        // Store with source_id/target_id = 0, resolve at flush (same as add_edge_by_qn)
+        self.edges.push(Edge {
+            id: 0,
+            project: self.project.clone(),
+            source_id: 0,
+            target_id: 0,
+            edge_type: edge_type.to_owned(),
+            properties_json: Some(
+                serde_json::json!({
+                    "_src_qn": source_qn,
+                    "_tgt_qn": target_qn,
+                    "_props": props.to_string(),
+                })
+                .to_string(),
+            ),
+        });
+    }
+
+    /// Merge another buffer's edges and nodes into this one.
+    /// The source buffer is consumed. qn_to_id maps are merged.
+    pub fn merge_from(&mut self, other: GraphBuffer) {
+        self.nodes.extend(other.nodes);
+        self.edges.extend(other.edges);
+        self.qn_to_id.extend(other.qn_to_id);
+        self.code_snippets.extend(other.code_snippets);
     }
 
     pub fn node_count(&self) -> usize {
@@ -155,19 +293,32 @@ impl GraphBuffer {
                 }
             }
         }
-        // Resolve missing QNs from store — try exact match first, then suffix match
-        for qn in &missing_qns {
-            if let Ok(Some(node)) = store.find_node_by_qn(&self.project, qn) {
-                self.qn_to_id.insert(qn.clone(), node.id);
-            } else {
-                // Suffix match: "project.ClassName" -> find node whose QN ends with ".ClassName"
-                let suffix = qn.rsplit('.').next().unwrap_or(qn);
-                if !suffix.is_empty() {
-                    let candidates = store
-                        .find_nodes_by_qn_suffix(&self.project, suffix)
-                        .unwrap_or_default();
-                    if candidates.len() == 1 {
-                        self.qn_to_id.insert(qn.clone(), candidates[0].id);
+        // Batch exact-match resolution
+        let missing_refs: Vec<&str> = missing_qns
+            .iter()
+            .filter(|qn| !self.qn_to_id.contains_key(*qn))
+            .map(|s| s.as_str())
+            .collect();
+        if !missing_refs.is_empty() {
+            let resolved = store.resolve_qns_batch(&self.project, &missing_refs)?;
+            self.qn_to_id.extend(resolved);
+        }
+
+        // Batch suffix-match for remaining unresolved
+        let still_missing: Vec<&str> = missing_qns
+            .iter()
+            .filter(|qn| !self.qn_to_id.contains_key(*qn))
+            .map(|qn| qn.rsplit('.').next().unwrap_or(qn))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !still_missing.is_empty() {
+            let suffix_resolved = store.resolve_qns_suffix_batch(&self.project, &still_missing)?;
+            // Map original QNs to resolved IDs
+            for qn in &missing_qns {
+                if !self.qn_to_id.contains_key(qn) {
+                    let suffix = qn.rsplit('.').next().unwrap_or(qn);
+                    if let Some(&id) = suffix_resolved.get(suffix) {
+                        self.qn_to_id.insert(qn.clone(), id);
                     }
                 }
             }
@@ -225,9 +376,9 @@ impl GraphBuffer {
         self.nodes.clear();
         self.edges.clear();
 
-        // Flush code content for FTS
+        // Flush code content for FTS (with compression for large snippets)
         if !self.code_snippets.is_empty() {
-            store.upsert_code_content_batch(&self.code_snippets)?;
+            store.upsert_code_content_compressed(&self.code_snippets)?;
             self.code_snippets.clear();
         }
 

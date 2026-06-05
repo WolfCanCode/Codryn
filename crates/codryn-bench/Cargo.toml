@@ -1,0 +1,26 @@
+[package]
+name = "codryn-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+codryn-store.workspace = true
+codryn-pipeline.workspace = true
+codryn-graph-buffer.workspace = true
+codryn-treesitter.workspace = true
+codryn-discover.workspace = true
+codryn-foundation.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+tempfile.workspace = true
+criterion.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[[bench]]
+name = "pipeline_bench"
+harness = false

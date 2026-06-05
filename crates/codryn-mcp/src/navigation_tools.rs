@@ -1,6 +1,6 @@
 use crate::AnalyticsMeta;
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetFileOverviewArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -18,7 +18,7 @@ pub struct GetFileOverviewArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct FindEntrypointsArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -34,7 +34,7 @@ pub struct FindEntrypointsArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct SuggestNextReadsArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -50,7 +50,7 @@ pub struct SuggestNextReadsArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct TraceDataFlowArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -72,7 +72,7 @@ pub struct TraceDataFlowArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct FindTestsForTargetArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -88,7 +88,7 @@ pub struct FindTestsForTargetArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct SuggestProjectLinksArgs {
     #[schemars(
         description = "Project name (optional, suggests links for all projects if omitted)"
@@ -100,7 +100,7 @@ pub struct SuggestProjectLinksArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct FindRoutesArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,
@@ -116,7 +116,7 @@ pub struct FindRoutesArgs {
     pub analytics: Option<AnalyticsMeta>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct TraceBackendFlowArgs {
     #[schemars(description = "Project name")]
     pub project: Option<String>,

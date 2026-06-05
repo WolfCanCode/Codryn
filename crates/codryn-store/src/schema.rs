@@ -74,6 +74,38 @@ CREATE TABLE IF NOT EXISTS code_blobs (\
   content BLOB NOT NULL,\
   is_compressed INTEGER NOT NULL DEFAULT 0,\
   PRIMARY KEY (project, qualified_name)\
+);\
+CREATE TABLE IF NOT EXISTS _index_progress (\
+  project TEXT NOT NULL,\
+  phase TEXT NOT NULL,\
+  phase_index INTEGER NOT NULL,\
+  files_processed INTEGER NOT NULL DEFAULT 0,\
+  started_at TEXT NOT NULL,\
+  completed INTEGER NOT NULL DEFAULT 0,\
+  PRIMARY KEY (project, phase)\
+);\
+CREATE TABLE IF NOT EXISTS _index_runs (\
+  id TEXT PRIMARY KEY,\
+  project TEXT NOT NULL,\
+  mode TEXT NOT NULL,\
+  status TEXT NOT NULL,\
+  git_commit TEXT,\
+  started_at TEXT NOT NULL,\
+  completed_at TEXT,\
+  node_count INTEGER DEFAULT 0,\
+  edge_count INTEGER DEFAULT 0,\
+  error TEXT\
+);\
+CREATE TABLE IF NOT EXISTS _snapshots (\
+  id INTEGER PRIMARY KEY AUTOINCREMENT,\
+  project TEXT NOT NULL,\
+  index_run_id TEXT,\
+  timestamp TEXT NOT NULL,\
+  total_nodes INTEGER NOT NULL,\
+  total_edges INTEGER NOT NULL,\
+  label_counts_json TEXT NOT NULL,\
+  edge_type_counts_json TEXT NOT NULL,\
+  content_hash TEXT NOT NULL\
 );";
 
 pub const INDEXES: &str = "\
@@ -87,7 +119,37 @@ CREATE INDEX IF NOT EXISTS idx_edges_target_type ON edges(project, target_id, ty
 CREATE INDEX IF NOT EXISTS idx_edges_source_type ON edges(project, source_id, type);\
 CREATE INDEX IF NOT EXISTS idx_nodes_properties_test ON nodes(project, json_extract(properties, '$.is_test'));\
 CREATE INDEX IF NOT EXISTS idx_nodes_properties_exported ON nodes(project, json_extract(properties, '$.is_exported'));\
-CREATE INDEX IF NOT EXISTS idx_nodes_properties_complexity ON nodes(project, json_extract(properties, '$.complexity'));";
+CREATE INDEX IF NOT EXISTS idx_nodes_properties_complexity ON nodes(project, json_extract(properties, '$.complexity'));\
+CREATE INDEX IF NOT EXISTS idx_index_runs_project_started ON _index_runs(project, started_at DESC);\
+CREATE INDEX IF NOT EXISTS idx_snapshots_project ON _snapshots(project, timestamp DESC);";
+
+/// DDL for the embeddings sidecar table.
+/// This table stores 384-dimensional float32 embeddings for semantic code search.
+/// It is designed to be created in the same database but logically acts as a sidecar
+/// for the main graph schema (Requirement 23.6).
+pub const EMBEDDINGS_DDL: &str = "\
+CREATE TABLE IF NOT EXISTS embeddings (\
+  node_id INTEGER PRIMARY KEY,\
+  project TEXT NOT NULL,\
+  embedding BLOB NOT NULL,\
+  text_hash TEXT NOT NULL,\
+  created_at TEXT NOT NULL\
+);\
+CREATE INDEX IF NOT EXISTS idx_embeddings_project ON embeddings(project);";
+
+/// DDL for the dependency freshness cache table.
+/// This table caches registry responses (latest version, deprecation status)
+/// to avoid repeated HTTP calls. Entries older than 1 hour are considered stale.
+/// (Requirement 33.4)
+pub const DEP_CACHE_DDL: &str = "\
+CREATE TABLE IF NOT EXISTS dep_cache (\
+  package_name TEXT NOT NULL,\
+  registry TEXT NOT NULL,\
+  latest_version TEXT,\
+  deprecated INTEGER DEFAULT 0,\
+  checked_at TEXT NOT NULL,\
+  PRIMARY KEY (package_name, registry)\
+);";
 
 /// Migrate the `tool_calls` table to add new columns for agent/model tracking
 /// and token spend. Uses try-and-ignore because SQLite doesn't support
@@ -102,6 +164,13 @@ pub fn migrate_tool_calls(conn: &rusqlite::Connection) {
         "ALTER TABLE file_hashes ADD COLUMN is_deleted INTEGER DEFAULT 0",
         "ALTER TABLE tool_calls ADD COLUMN request_body TEXT DEFAULT ''",
         "ALTER TABLE tool_calls ADD COLUMN response_body TEXT DEFAULT ''",
+        // Confidence scoring columns on edges
+        "ALTER TABLE edges ADD COLUMN confidence REAL DEFAULT NULL",
+        "ALTER TABLE edges ADD COLUMN edge_source TEXT DEFAULT NULL",
+        // Index run tracking: add run_id to _index_progress
+        "ALTER TABLE _index_progress ADD COLUMN run_id TEXT",
+        // Route snapshot data for API surface diff (Requirement 25.4)
+        "ALTER TABLE _snapshots ADD COLUMN routes_json TEXT DEFAULT NULL",
     ];
     for sql in &migrations {
         let _ = conn.execute_batch(sql); // ignore "duplicate column" errors

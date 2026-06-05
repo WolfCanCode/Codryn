@@ -66,15 +66,22 @@ pub fn pass_vue(buf: &mut GraphBuffer, store: &Store, files: &[&DiscoveredFile],
             let sq = format!("{project}.selector.{sel}");
             let props = serde_json::json!({"component": comp_name, "selector": sel}).to_string();
             buf.add_node("Selector", sel, &sq, &f.rel_path, 0, 0, Some(props));
-            buf.add_edge_by_qn(&sq, &class_qn, "SELECTS", None);
+            buf.add_edge_with_confidence(
+                &sq,
+                &class_qn,
+                "SELECTS",
+                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                None,
+            );
         }
 
         for cap in VUE_COMPOSABLE_RE.captures_iter(&source) {
             let composable = cap.get(1).unwrap().as_str();
-            buf.add_edge_by_qn(
+            buf.add_edge_with_confidence(
                 &class_qn,
                 &format!("{project}.{composable}"),
                 "INJECTS",
+                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
                 None,
             );
         }
@@ -86,7 +93,13 @@ pub fn pass_vue(buf: &mut GraphBuffer, store: &Store, files: &[&DiscoveredFile],
                 continue;
             }
             if let Ok(Some(child)) = store.find_node_by_property(project, "selector", sel) {
-                buf.add_edge_by_qn(&class_qn, &child.qualified_name, "RENDERS", None);
+                buf.add_edge_with_confidence(
+                    &class_qn,
+                    &child.qualified_name,
+                    "RENDERS",
+                    codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                    None,
+                );
             }
         }
     }

@@ -178,4 +178,61 @@ except TypeError:
         // 1 base + 2 except
         assert_eq!(cyclomatic_complexity(source), 3);
     }
+
+    #[test]
+    fn counts_match_arms_via_case() {
+        // Rust match arms are counted as "case" keywords in the text-based heuristic
+        // because the text-based counter looks for "case " keyword
+        let source = r#"
+fn describe(x: u32) -> &'static str {
+    match x {
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    }
+}
+"#;
+        // 1 base — match arms in Rust don't use "case " keyword, so text-based
+        // heuristic counts only the base. This is expected behaviour for the
+        // text-based fallback (AST-based compute_complexity handles match_arm nodes).
+        assert_eq!(cyclomatic_complexity(source), 1);
+    }
+
+    #[test]
+    fn counts_switch_case_statements() {
+        // JavaScript/C-style switch with case keywords
+        let source = r#"
+switch (x) {
+    case 0:
+        return "zero";
+    case 1:
+        return "one";
+    default:
+        return "other";
+}
+"#;
+        // 1 base + 2 case
+        assert_eq!(cyclomatic_complexity(source), 3);
+    }
+
+    #[test]
+    fn deeply_nested_code_accumulates_decision_points() {
+        let source = r#"
+fn process(items: &[i32]) -> i32 {
+    let mut result = 0;
+    for item in items {
+        if *item > 0 {
+            while result < 100 {
+                if result % 2 == 0 {
+                    result += item;
+                }
+            }
+        }
+    }
+    result
+}
+"#;
+        // 1 base + 1 for + 1 outer if + 1 while + 1 inner if = 5
+        assert_eq!(cyclomatic_complexity(source), 5);
+    }
 }

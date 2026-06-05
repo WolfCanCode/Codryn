@@ -3,7 +3,8 @@ use codryn_foundation::fqn;
 use codryn_graph_buffer::GraphBuffer;
 use tree_sitter::{Node, Parser};
 
-use crate::registry::Registry;
+use crate::extraction::{ExtractionEdge, ExtractionNode, ExtractionResult};
+use crate::registry::{Registry, RegistryEntry};
 use crate::spring_common::*;
 
 fn make_parser() -> Option<Parser> {
@@ -13,32 +14,20 @@ fn make_parser() -> Option<Parser> {
     Some(parser)
 }
 
-pub fn extract_kotlin(
-    buf: &mut GraphBuffer,
-    reg: &mut Registry,
-    project: &str,
-    file: &DiscoveredFile,
-) {
+/// Extract definitions from a Kotlin file using tree-sitter AST (parallel-safe).
+/// Returns an `ExtractionResult` with nodes, registry entries, code snippets, and edges
+/// without mutating any shared state. Safe to call from multiple threads.
+pub fn extract_kotlin_parallel(project: &str, file: &DiscoveredFile) -> Option<ExtractionResult> {
     let source = match std::fs::read_to_string(&file.abs_path) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return Some(ExtractionResult::new()),
     };
-    let mut parser = match make_parser() {
-        Some(p) => p,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
-    let tree = match parser.parse(&source, None) {
-        Some(t) => t,
-        None => {
-            super::extraction::extract_file(buf, reg, project, file);
-            return;
-        }
-    };
+    let mut parser = make_parser()?;
+    let tree = parser.parse(&source, None)?;
+
     let src = source.as_bytes();
-    walk_top_level(buf, reg, project, file, src, &tree.root_node());
+    let mut result = ExtractionResult::new();
+    walk_top_level_parallel(&mut result, project, file, src, &tree.root_node());
 
     let module_qn = fqn::fqn_module(project, &file.rel_path);
     let module_name = std::path::Path::new(&file.rel_path)
@@ -46,15 +35,32 @@ pub fn extract_kotlin(
         .and_then(|s| s.to_str())
         .unwrap_or(&file.rel_path);
     let lines = source.lines().count();
-    buf.add_node(
-        "Module",
-        module_name,
-        &module_qn,
-        &file.rel_path,
-        1,
-        lines as i32,
-        None,
-    );
+    result.nodes.push(ExtractionNode {
+        label: "Module".to_owned(),
+        name: module_name.to_owned(),
+        qualified_name: module_qn,
+        file_path: file.rel_path.clone(),
+        start_line: 1,
+        end_line: lines as i32,
+        properties_json: None,
+    });
+
+    Some(result)
+}
+
+pub fn extract_kotlin(
+    buf: &mut GraphBuffer,
+    reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+) {
+    match extract_kotlin_parallel(project, file) {
+        Some(result) => result.apply(buf, reg),
+        None => {
+            // Parser unavailable or parse failed — fall back to generic extraction
+            super::extraction::extract_file(buf, reg, project, file);
+        }
+    }
 }
 
 pub fn register_kotlin(reg: &mut Registry, project: &str, file: &DiscoveredFile) {
@@ -80,6 +86,7 @@ pub fn register_kotlin(reg: &mut Registry, project: &str, file: &DiscoveredFile)
     walk_top_level_register(reg, project, file, src, &tree.root_node());
 }
 
+#[allow(dead_code)]
 fn walk_top_level(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
@@ -101,6 +108,31 @@ fn walk_top_level(
                 // Recurse into source_file children
                 if child.kind() == "source_file" {
                     walk_top_level(buf, reg, project, file, src, &child);
+                }
+            }
+        }
+    }
+}
+
+fn walk_top_level_parallel(
+    result: &mut ExtractionResult,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+) {
+    for i in 0..node.child_count() {
+        let child = node.child(i).unwrap();
+        match child.kind() {
+            "class_declaration" | "object_declaration" => {
+                extract_class_parallel(result, project, file, src, &child);
+            }
+            "function_declaration" => {
+                extract_function_parallel(result, project, file, src, &child, "", false, None);
+            }
+            _ => {
+                if child.kind() == "source_file" {
+                    walk_top_level_parallel(result, project, file, src, &child);
                 }
             }
         }
@@ -249,9 +281,22 @@ fn find_class_body<'a>(node: &'a Node<'a>) -> Option<Node<'a>> {
     None
 }
 
+#[allow(dead_code)]
 fn extract_class(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+) {
+    let mut result = ExtractionResult::new();
+    extract_class_parallel(&mut result, project, file, src, node);
+    result.apply(buf, reg);
+}
+
+fn extract_class_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -300,17 +345,35 @@ fn extract_class(
     let end = node.end_position().row as i32 + 1;
     let qn = fqn::fqn_compute(project, &file.rel_path, Some(&name));
 
-    buf.add_node(label, &name, &qn, &file.rel_path, start, end, props_json);
-    reg.register(&name, &qn, &file.rel_path, label, start, end);
-    buf.add_code_content(&qn, node_text(node, src));
+    result.nodes.push(ExtractionNode {
+        label: label.to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name.clone(),
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: label.to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
+    result
+        .code_snippets
+        .push((qn.clone(), node_text(node, src).to_owned()));
 
     if let Some(body) = find_class_body(node) {
         for j in 0..body.child_count() {
             let child = body.child(j).unwrap();
             if child.kind() == "function_declaration" {
-                extract_function(
-                    buf,
-                    reg,
+                extract_function_parallel(
+                    result,
                     project,
                     file,
                     src,
@@ -355,10 +418,36 @@ fn register_class(
     }
 }
 
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 fn extract_function(
     buf: &mut GraphBuffer,
     reg: &mut Registry,
+    project: &str,
+    file: &DiscoveredFile,
+    src: &[u8],
+    node: &Node,
+    class_base_path: &str,
+    is_controller: bool,
+    class_layer: Option<&str>,
+) {
+    let mut result = ExtractionResult::new();
+    extract_function_parallel(
+        &mut result,
+        project,
+        file,
+        src,
+        node,
+        class_base_path,
+        is_controller,
+        class_layer,
+    );
+    result.apply(buf, reg);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extract_function_parallel(
+    result: &mut ExtractionResult,
     project: &str,
     file: &DiscoveredFile,
     src: &[u8],
@@ -402,9 +491,28 @@ fn extract_function(
     } else {
         Some(serde_json::Value::Object(props).to_string())
     };
-    buf.add_node(label, &name, &qn, &file.rel_path, start, end, props_json);
-    reg.register(&name, &qn, &file.rel_path, label, start, end);
-    buf.add_code_content(&qn, node_text(node, src));
+    result.nodes.push(ExtractionNode {
+        label: label.to_owned(),
+        name: name.clone(),
+        qualified_name: qn.clone(),
+        file_path: file.rel_path.clone(),
+        start_line: start,
+        end_line: end,
+        properties_json: props_json,
+    });
+    result.registry_entries.push((
+        name.clone(),
+        RegistryEntry {
+            qualified_name: qn.clone(),
+            file_path: file.rel_path.clone(),
+            label: label.to_owned(),
+            start_line: start,
+            end_line: end,
+        },
+    ));
+    result
+        .code_snippets
+        .push((qn.clone(), node_text(node, src).to_owned()));
 
     // Route creation
     if is_controller {
@@ -460,7 +568,14 @@ fn extract_function(
                                     if is_dto_candidate(dto) {
                                         route_props["request_dto_type"] = serde_json::json!(dto);
                                         let dto_qn = format!("{project}.{dto}");
-                                        buf.add_edge_by_qn(&route_qn, &dto_qn, "ACCEPTS_DTO", None);
+                                        result.edges.push(ExtractionEdge {
+                                            source_qn: route_qn.clone(),
+                                            target_qn: dto_qn,
+                                            edge_type: "ACCEPTS_DTO".to_owned(),
+                                            properties_json: None,
+                                            edge_source:
+                                                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                                        });
                                     }
                                 }
                             }
@@ -475,19 +590,31 @@ fn extract_function(
             if is_dto_candidate(ret) {
                 route_props["response_dto_type"] = serde_json::json!(ret);
                 let ret_qn = format!("{project}.{ret}");
-                buf.add_edge_by_qn(&route_qn, &ret_qn, "RETURNS_DTO", None);
+                result.edges.push(ExtractionEdge {
+                    source_qn: route_qn.clone(),
+                    target_qn: ret_qn,
+                    edge_type: "RETURNS_DTO".to_owned(),
+                    properties_json: None,
+                    edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                });
             }
 
-            buf.add_node(
-                "Route",
-                &route_name,
-                &route_qn,
-                &file.rel_path,
-                start,
-                end,
-                Some(route_props.to_string()),
-            );
-            buf.add_edge_by_qn(&qn, &route_qn, "HANDLES_ROUTE", None);
+            result.nodes.push(ExtractionNode {
+                label: "Route".to_owned(),
+                name: route_name,
+                qualified_name: route_qn.clone(),
+                file_path: file.rel_path.clone(),
+                start_line: start,
+                end_line: end,
+                properties_json: Some(route_props.to_string()),
+            });
+            result.edges.push(ExtractionEdge {
+                source_qn: qn,
+                target_qn: route_qn,
+                edge_type: "HANDLES_ROUTE".to_owned(),
+                properties_json: None,
+                edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+            });
         }
     }
 }
@@ -581,10 +708,11 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                                             let dto = dto.rsplit('.').next().unwrap_or(dto).trim();
                                             if is_dto_candidate(dto) {
                                                 props["request_dto_type"] = serde_json::json!(dto);
-                                                buf.add_edge_by_qn(
+                                                buf.add_edge_with_confidence(
                                                     &route_qn,
                                                     &format!("{project}.{dto}"),
                                                     "ACCEPTS_DTO",
+                                                    codryn_graph_buffer::EdgeSource::DedicatedAdapter,
                                                     None,
                                                 );
                                             }
@@ -600,10 +728,11 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                         let ret = ret.rsplit('.').next().unwrap_or(ret).trim();
                         if is_dto_candidate(ret) {
                             props["response_dto_type"] = serde_json::json!(ret);
-                            buf.add_edge_by_qn(
+                            buf.add_edge_with_confidence(
                                 &route_qn,
                                 &format!("{project}.{ret}"),
                                 "RETURNS_DTO",
+                                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
                                 None,
                             );
                         }
@@ -616,7 +745,13 @@ pub fn create_routes(buf: &mut GraphBuffer, project: &str, file: &DiscoveredFile
                             e,
                             Some(props.to_string()),
                         );
-                        buf.add_edge_by_qn(&method_qn, &route_qn, "HANDLES_ROUTE", None);
+                        buf.add_edge_with_confidence(
+                            &method_qn,
+                            &route_qn,
+                            "HANDLES_ROUTE",
+                            codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                            None,
+                        );
                     }
                 }
             }

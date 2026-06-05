@@ -10,6 +10,13 @@
   Fast indexing. Deep code understanding. Embedded web UI. Single binary.
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/languages-64-blue" alt="64 languages" />
+  <img src="https://img.shields.io/badge/MCP_tools-46-green" alt="46 MCP tools" />
+  <img src="https://img.shields.io/badge/agents-10+-orange" alt="10+ agents" />
+  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT license" />
+</p>
+
 `codryn` is an open-source Rust knowledge graph and MCP server for AI coding agents, built to make large codebases easier to explore, trace, and understand.
 
 > Based on the paper: [Codebase-memory-mcp: A Persistent Knowledge Graph for AI Coding Agents](https://arxiv.org/abs/2603.27277)
@@ -54,95 +61,92 @@ That gives agents fast answers for things like:
 - **Embedded dashboard** for visual graph exploration
 - **Incremental indexing** so re-runs stay fast
 - **Cross-project linking** for multi-repo systems
-- **30 MCP tools** for search, tracing, navigation, analysis, and architecture
+- **46 MCP tools** for search, tracing, navigation, analysis, architecture, and agent-first operations
+- **Semantic search** using all-MiniLM-L6-v2 embeddings for natural language code queries
 - **CI/CD and infrastructure discovery** for GitHub Actions, GitLab CI, CircleCI, Azure Pipelines, Bitbucket Pipelines, Jenkinsfile-style jobs, Docker, Kubernetes, Kustomize, Helm, and Terraform resources
-- **64 language detection** plus tree-sitter walkers for Rust, TypeScript, JavaScript, Python, Go, C/C++, C#, Ruby, PHP, Swift, Scala, Elixir, and Bash
+- **64 language detection** plus tree-sitter walkers for Rust, TypeScript, JavaScript, Python, Go, Java, Kotlin, Dart, Lua, Haskell, C/C++, C#, Ruby, PHP, Swift, Scala, Elixir, and Bash
+- **Agent-first tools**: `what_if`, `ask_graph`, `plan_refactoring`, `detect_patterns`, `semantic_search`, `generate_openapi`
+- **Confidence scoring** on every graph edge (0.0–1.0 provenance)
 - **Single binary** with no Docker required
 
 ## What makes it interesting
 
 - **Built for AI agents**: not just search, but graph-aware navigation and analysis
-- **Framework-aware**: strong support for Spring Boot and Angular structure
+- **Framework-aware**: strong support for Spring Boot, Angular, Vue, FastAPI, Go, and Next.js
 - **Useful locally**: run as an MCP server or open the web UI
 - **Practical architecture**: one workspace, one binary, one local graph store
 
-## Quick look
-
-### Core capabilities
-
-- Search symbols and code structure
-- Trace call paths and backend flows
-- Inspect architecture at a high level
-- Find routes, references, tests, and likely entrypoints
-- Query the graph directly with Cypher
-- Visualize projects and relationships in the browser
-- Inspect pipeline DAGs and infrastructure resources
-
-### Web dashboard
-
-The built-in UI includes:
-
-- project overview cards
-- interactive graph exploration
-- backend flow and frontend component flow views
-- Cypher query console
-- analytics for tool usage
-
 ## MCP tools
 
-Some of the most useful tools:
+Some of the most useful tools (46 total):
 
 | Tool | Description |
 |---|---|
 | `index_repository` | Build the graph for a repository |
-| `search_graph` | Search symbols, names, and indexed structure |
-| `trace_call_path` | Follow calls between functions |
-| `get_architecture` | Summarize packages, modules, and code shape |
-| `get_code_snippet` | Read source for a symbol with context |
+| `find_symbol` | Fast ranked symbol lookup by name |
+| `get_symbol_details` | Full context: callers, callees, imports, inheritance |
 | `find_references` | Find symbol usage through graph edges |
 | `impact_analysis` | Estimate what a change will affect |
+| `what_if` | Predict breakages from rename/remove/change |
+| `trace_call_path` | Follow calls between functions |
+| `trace_backend_flow` | Trace route → controller → service → repository |
+| `get_architecture` | Summarize packages, modules, and code shape |
+| `get_project_summary` | Onboarding brief in one call |
 | `find_routes` | Discover API routes and DTO relationships |
-| `trace_backend_flow` | Trace route to controller to service to repository |
-| `find_pipelines` | Discover CI/CD pipelines with stages, jobs, and dependencies |
-| `find_infrastructure` | Discover Docker, Kubernetes, Helm, and Terraform-style resources |
+| `find_dead_code` | Find unused symbols |
+| `detect_patterns` | Detect design patterns and antipatterns |
+| `plan_refactoring` | Step-by-step refactoring plans |
+| `semantic_search` | Natural language code search |
+| `generate_openapi` | Generate OpenAPI spec from routes |
+| `get_api_surface` | Public API with optional diff |
+| `dep_freshness` | Check for outdated dependencies |
+| `ask_graph` | Plain English questions about code |
 | `suggest_next_reads` | Help agents decide what to inspect next |
+| `find_pipelines` | Discover CI/CD pipelines |
+| `find_infrastructure` | Discover Docker, Kubernetes, Helm, Terraform resources |
 
-## Web API
+> Full tool reference: [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md)
 
-The embedded dashboard also exposes JSON endpoints for local UI features:
+## CLI
 
-| Endpoint | Description |
-|---|---|
-| `GET /api/analytics/{id}` | Return a single analytics call detail |
-| `GET /api/pipelines?project=<name>` | List pipeline DAGs for a project |
-| `GET /api/pipelines?project=<name>&name=<pipeline>` | Return one pipeline DAG |
-| `GET /api/infrastructure?project=<name>[&type=<kind>]` | List indexed infrastructure resources |
+```
+codryn                        Run as MCP server on stdin/stdout
+codryn install                Auto-configure coding agents (interactive)
+codryn status                 Show agent installation status
+codryn activate [--global]    Activate steering for workspace
+codryn query <tool> [--args]  Run MCP tool as CLI command
+codryn validate --project P   Validate graph consistency
+codryn dedupe --project P     Deduplicate graph nodes
+codryn complexity --project P Report complex symbols
+codryn deps --project P       List/check dependencies
+codryn backup [path]          Back up the graph database
+codryn --ui [--port=N]        Enable web UI (default port 9749)
+```
 
 ## Architecture
 
 ```text
 crates/
-├── foundation
-├── store
-├── discovery
-├── indexing pipeline
-├── tree-sitter walkers
-├── graph buffer
-├── cypher engine
-├── services
-├── mcp server
-├── cli
-├── ui
-├── watcher
-└── app binary
+├── codryn-foundation    — Config, platform detection, utilities
+├── codryn-store         — SQLite graph store with pooling & embeddings
+├── codryn-discover      — 64-language file discovery
+├── codryn-pipeline      — Multi-pass indexing with checkpoints
+├── codryn-treesitter    — 30+ AST walkers
+├── codryn-graph-buffer  — Batch graph operations with confidence
+├── codryn-cypher        — Cypher → SQL query engine
+├── codryn-services      — Navigation, flow, analysis, semantic search
+├── codryn-mcp           — 46 MCP tool handlers
+├── codryn-cli           — Interactive install, validate, query, etc.
+├── codryn-ui            — Web dashboard (React + embedded assets)
+├── codryn-watcher       — File system watcher
+├── codryn-bench         — Performance benchmarks
+└── codryn-bin           — App binary
 
 ui/
-└── dashboard for graph exploration
+└── React/Vite dashboard for graph exploration
 ```
 
 ## Local run
-
-For now, keep it simple:
 
 ```bash
 cargo build --release
@@ -153,18 +157,11 @@ Then open `http://127.0.0.1:9749`.
 
 ## Supported languages
 
-Supports 64 language mappings, including Rust, TypeScript, JavaScript, Java, Kotlin, Python, Go, C, C++, C#, PHP, Ruby, Scala, Swift, SQL, HTML, CSS, Vue, Svelte, Bash, Dockerfile, YAML, and more. Codryn also includes tree-sitter symbol walkers for the main backend, frontend, scripting, and systems languages used by the indexing pipeline.
+Supports 64 language mappings, including Rust, TypeScript, JavaScript, Java, Kotlin, Python, Go, Dart, Lua, Haskell, C, C++, C#, PHP, Ruby, Scala, Swift, Elixir, SQL, HTML, CSS, Vue, Svelte, Bash, Dockerfile, YAML, and more. Deep tree-sitter walkers for 30+ languages with error-tolerant AST recovery.
 
 ## Open source
 
 This project is MIT licensed and intended to be easy to use, inspect, extend, and contribute to.
-
-If you like the direction:
-
-- star the repo
-- open an issue
-- suggest a tool or framework integration
-- contribute improvements
 
 ## License
 

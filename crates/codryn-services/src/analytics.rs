@@ -42,6 +42,7 @@ impl AnalyticsService {
         tool: &str,
         project: &str,
         duration_ms: i64,
+        request: &str,
         result: &str,
     ) {
         if store_path.to_string_lossy() == ":memory:" {
@@ -72,7 +73,7 @@ impl AnalyticsService {
                 input_tokens,
                 output_tokens,
                 response_bytes,
-                "",
+                request,
                 result,
             );
         }

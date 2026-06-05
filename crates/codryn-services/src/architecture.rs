@@ -1,5 +1,6 @@
 use anyhow::Result;
 use codryn_store::Store;
+use rusqlite::params;
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -21,6 +22,9 @@ pub struct Layer {
     pub inbound_edges: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outbound_edges: Option<i64>,
+    /// Percentage (0–100) of public symbols with non-empty docstring.
+    /// Null when the module has zero public symbols.
+    pub doc_coverage: Option<u8>,
 }
 
 const LAYER_RULES: &[(&str, &[&str])] = &[
@@ -89,6 +93,53 @@ fn classify_node_layer(properties_json: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Compute documentation coverage for a set of files in a layer.
+/// Returns None if there are zero public symbols, otherwise returns the
+/// percentage (0–100) of public symbols with a non-null/non-empty docstring.
+fn compute_layer_doc_coverage(store: &Store, project: &str, files: &[String]) -> Option<u8> {
+    if files.is_empty() {
+        return None;
+    }
+
+    let conn = store.conn();
+    let mut total_public = 0u64;
+    let mut documented = 0u64;
+
+    for file in files {
+        // Count total public symbols in this file
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM nodes WHERE project = ?1 AND file_path = ?2 \
+                 AND json_extract(properties, '$.is_exported') = 1",
+                params![project, file],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        // Count documented public symbols (docstring is non-null and non-empty)
+        let doc: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM nodes WHERE project = ?1 AND file_path = ?2 \
+                 AND json_extract(properties, '$.is_exported') = 1 \
+                 AND json_extract(properties, '$.docstring') IS NOT NULL \
+                 AND json_extract(properties, '$.docstring') != ''",
+                params![project, file],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        total_public += total as u64;
+        documented += doc as u64;
+    }
+
+    if total_public == 0 {
+        return None;
+    }
+
+    let pct = ((documented as f64 / total_public as f64) * 100.0).round() as u8;
+    Some(pct)
+}
+
 impl ArchitectureService {
     pub fn get_architecture(store: &Store, project: &str) -> Result<ArchitectureResult> {
         let files = store.list_files(project)?;
@@ -147,12 +198,16 @@ impl ArchitectureService {
                     }
                 }
 
+                // Compute doc_coverage for this layer's files
+                let doc_coverage = compute_layer_doc_coverage(store, project, &file_list);
+
                 Layer {
                     name: name.to_string(),
                     files: file_list,
                     total_count,
                     inbound_edges: Some(inbound),
                     outbound_edges: Some(outbound),
+                    doc_coverage,
                 }
             })
             .collect();
@@ -293,5 +348,119 @@ mod tests {
             res.layers.iter().any(|l| l.name == "services"),
             "should classify via node layer even without 'service' in path"
         );
+    }
+
+    #[test]
+    fn test_doc_coverage_all_documented() {
+        let s = setup();
+        // Two exported symbols, both with docstrings
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "handle_request".into(),
+            qualified_name: "p::controller::handle_request".into(),
+            file_path: "src/controller/handler.rs".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: Some(
+                r#"{"is_exported":true,"docstring":"Handles incoming requests"}"#.into(),
+            ),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "process".into(),
+            qualified_name: "p::controller::process".into(),
+            file_path: "src/controller/handler.rs".into(),
+            start_line: 12,
+            end_line: 20,
+            properties_json: Some(r#"{"is_exported":true,"docstring":"Processes data"}"#.into()),
+        })
+        .unwrap();
+
+        let res = ArchitectureService::get_architecture(&s, "p").unwrap();
+        let ctrl = res.layers.iter().find(|l| l.name == "controllers").unwrap();
+        assert_eq!(ctrl.doc_coverage, Some(100));
+    }
+
+    #[test]
+    fn test_doc_coverage_partial() {
+        let s = setup();
+        // One documented, one undocumented
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "documented_fn".into(),
+            qualified_name: "p::service::documented_fn".into(),
+            file_path: "src/service/svc.rs".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: Some(r#"{"is_exported":true,"docstring":"Has docs"}"#.into()),
+        })
+        .unwrap();
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "undocumented_fn".into(),
+            qualified_name: "p::service::undocumented_fn".into(),
+            file_path: "src/service/svc.rs".into(),
+            start_line: 12,
+            end_line: 20,
+            properties_json: Some(r#"{"is_exported":true}"#.into()),
+        })
+        .unwrap();
+
+        let res = ArchitectureService::get_architecture(&s, "p").unwrap();
+        let svc = res.layers.iter().find(|l| l.name == "services").unwrap();
+        assert_eq!(svc.doc_coverage, Some(50));
+    }
+
+    #[test]
+    fn test_doc_coverage_null_when_no_public_symbols() {
+        let s = setup();
+        // Node without is_exported (not a public symbol)
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "private_fn".into(),
+            qualified_name: "p::service::private_fn".into(),
+            file_path: "src/service/internal.rs".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: Some(r#"{"is_exported":false}"#.into()),
+        })
+        .unwrap();
+
+        let res = ArchitectureService::get_architecture(&s, "p").unwrap();
+        let svc = res.layers.iter().find(|l| l.name == "services").unwrap();
+        assert_eq!(svc.doc_coverage, None);
+    }
+
+    #[test]
+    fn test_doc_coverage_empty_docstring_counts_as_undocumented() {
+        let s = setup();
+        // Exported symbol with empty docstring
+        s.insert_node(&Node {
+            id: 0,
+            project: "p".into(),
+            label: "Function".into(),
+            name: "empty_doc_fn".into(),
+            qualified_name: "p::controller::empty_doc_fn".into(),
+            file_path: "src/controller/api.rs".into(),
+            start_line: 1,
+            end_line: 10,
+            properties_json: Some(r#"{"is_exported":true,"docstring":""}"#.into()),
+        })
+        .unwrap();
+
+        let res = ArchitectureService::get_architecture(&s, "p").unwrap();
+        let ctrl = res.layers.iter().find(|l| l.name == "controllers").unwrap();
+        assert_eq!(ctrl.doc_coverage, Some(0));
     }
 }

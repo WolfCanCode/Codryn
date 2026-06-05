@@ -1,14 +1,30 @@
 mod analytics;
 pub mod compressed_store;
+pub mod deduplication;
+pub mod dep_cache;
 mod edges;
+pub mod embeddings;
+mod index_runs;
 mod nodes;
+pub mod pool;
 mod projects;
 mod queries;
 mod schema;
+pub mod snapshots;
 mod types;
+pub mod validation;
 
+pub use deduplication::{DedupeGroup, DedupeReport, NearDedupeGroup};
+pub use dep_cache::{now_iso8601, DepCacheEntry};
+pub use embeddings::{
+    build_embedding_text, bytes_to_embedding, embedding_to_bytes, should_embed_node,
+    EmbeddingRecord,
+};
+pub use index_runs::{IndexRun, IndexRunStatus};
 pub use queries::extract_semantic_keywords;
+pub use snapshots::{GraphDiff, GraphSummarySnapshot, SnapshotRoute};
 pub use types::*;
+pub use validation::ValidationReport;
 
 /// (name, qualified_name, label, file_path, start_line, edge_type)
 pub type NeighborInfo = (String, String, String, String, i32, String);
@@ -22,12 +38,14 @@ pub fn schema_migrate_tool_calls(conn: &rusqlite::Connection) {
     schema::migrate_tool_calls(conn);
 }
 
-use anyhow::Result;
-use rusqlite::Connection;
+use anyhow::{Context, Result};
+use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Store {
     conn: Connection,
+    bulk_mode: AtomicBool,
 }
 
 impl std::fmt::Debug for Store {
@@ -38,37 +56,247 @@ impl std::fmt::Debug for Store {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        let mut s = Self { conn };
+        let conn = Connection::open(path)
+            .with_context(|| format!("failed to open store database at {}", path.display()))?;
+        let mut s = Self {
+            conn,
+            bulk_mode: AtomicBool::new(false),
+        };
         s.configure_pragmas(false)?;
         s.init_schema()?;
         Ok(s)
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        let mut s = Self { conn };
+        let conn =
+            Connection::open_in_memory().context("failed to open in-memory store database")?;
+        let mut s = Self {
+            conn,
+            bulk_mode: AtomicBool::new(false),
+        };
         s.configure_pragmas(true)?;
         s.init_schema()?;
         Ok(s)
     }
 
+    /// Enable bulk indexing mode: optimize SQLite for write throughput.
+    /// Must be paired with `disable_bulk_indexing_mode()` after indexing.
+    pub fn enable_bulk_indexing_mode(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "PRAGMA temp_store = MEMORY;\
+                 PRAGMA mmap_size = 268435456;\
+                 PRAGMA wal_autocheckpoint = 0;\
+                 PRAGMA foreign_keys = OFF;",
+            )
+            .context("failed to enable bulk indexing mode")?;
+        self.bulk_mode.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Restore normal SQLite configuration after indexing.
+    /// Also runs a WAL checkpoint to consolidate the WAL file.
+    pub fn disable_bulk_indexing_mode(&self) -> Result<()> {
+        self.bulk_mode.store(false, Ordering::Release);
+        self.conn
+            .execute_batch(
+                "PRAGMA foreign_keys = ON;\
+                 PRAGMA wal_autocheckpoint = 1000;\
+                 PRAGMA mmap_size = 0;\
+                 PRAGMA temp_store = DEFAULT;",
+            )
+            .context("failed to disable bulk indexing mode")?;
+        // Run a passive WAL checkpoint to consolidate without blocking readers
+        let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+        Ok(())
+    }
+
+    /// Returns whether bulk indexing mode is currently active.
+    pub fn is_bulk_mode(&self) -> bool {
+        self.bulk_mode.load(Ordering::Acquire)
+    }
+
     fn configure_pragmas(&self, in_memory: bool) -> Result<()> {
-        self.conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        // Set busy timeout so concurrent readers (UI) don't get SQLITE_BUSY
+        // during long write transactions. 10 seconds is generous.
+        self.conn
+            .execute_batch("PRAGMA busy_timeout = 10000;")
+            .context("failed to set PRAGMA busy_timeout")?;
+        self.conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .context("failed to set PRAGMA foreign_keys")?;
         if !in_memory {
-            self.conn.execute_batch(
-                "PRAGMA journal_mode = WAL;\
-                 PRAGMA synchronous = NORMAL;\
-                 PRAGMA cache_size = -64000;",
-            )?;
+            self.conn
+                .execute_batch(
+                    "PRAGMA journal_mode = WAL;\
+                     PRAGMA synchronous = NORMAL;\
+                     PRAGMA cache_size = -64000;",
+                )
+                .context("failed to configure WAL/cache pragmas")?;
         }
         Ok(())
     }
 
     fn init_schema(&mut self) -> Result<()> {
-        self.conn.execute_batch(schema::DDL)?;
-        self.conn.execute_batch(schema::INDEXES)?;
+        self.conn
+            .execute_batch(schema::DDL)
+            .context("failed to apply DDL schema")?;
+        self.conn
+            .execute_batch(schema::INDEXES)
+            .context("failed to create indexes")?;
+        self.conn
+            .execute_batch(schema::EMBEDDINGS_DDL)
+            .context("failed to apply embeddings DDL")?;
+        self.conn
+            .execute_batch(schema::DEP_CACHE_DDL)
+            .context("failed to apply dep_cache DDL")?;
         schema::migrate_tool_calls(&self.conn);
+        Ok(())
+    }
+
+    /// Save or update an index checkpoint for crash recovery.
+    /// Uses INSERT OR REPLACE to upsert based on (project, phase) primary key.
+    pub fn save_checkpoint(&self, cp: &IndexCheckpoint) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO _index_progress (project, phase, phase_index, files_processed, started_at, completed, run_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    cp.project,
+                    cp.phase,
+                    cp.phase_index,
+                    cp.files_processed,
+                    cp.started_at,
+                    cp.completed as i32,
+                    cp.run_id,
+                ],
+            )
+            .context("failed to save index checkpoint")?;
+        Ok(())
+    }
+
+    /// Retrieve the most recent incomplete checkpoint for a project.
+    /// Returns the checkpoint with the highest phase_index that is not yet completed.
+    pub fn get_incomplete_checkpoint(&self, project: &str) -> Result<Option<IndexCheckpoint>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project, phase, phase_index, files_processed, started_at, completed, run_id \
+             FROM _index_progress \
+             WHERE project = ?1 AND completed = 0 \
+             ORDER BY phase_index DESC \
+             LIMIT 1",
+        )?;
+        let result = stmt
+            .query_row(rusqlite::params![project], |row| {
+                Ok(IndexCheckpoint {
+                    project: row.get(0)?,
+                    phase: row.get(1)?,
+                    phase_index: row.get::<_, u32>(2)?,
+                    files_processed: row.get::<_, u32>(3)?,
+                    started_at: row.get(4)?,
+                    completed: row.get::<_, i32>(5)? != 0,
+                    run_id: row.get(6)?,
+                })
+            })
+            .optional()
+            .context("failed to query incomplete checkpoint")?;
+        Ok(result)
+    }
+
+    /// Clear all checkpoints for a project (e.g., after successful index completion).
+    pub fn clear_checkpoint(&self, project: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM _index_progress WHERE project = ?1",
+                rusqlite::params![project],
+            )
+            .context("failed to clear index checkpoints")?;
+        Ok(())
+    }
+
+    /// Create a consistent backup of the database using SQLite's online backup API.
+    /// This does not block reads on the source database.
+    pub fn backup_to(&self, dest: &Path) -> Result<()> {
+        // Remove existing backup file if present to avoid appending to stale data
+        if dest.exists() {
+            std::fs::remove_file(dest).with_context(|| {
+                format!("failed to remove existing backup at {}", dest.display())
+            })?;
+        }
+
+        let mut dest_conn = Connection::open(dest)
+            .with_context(|| format!("failed to open backup destination at {}", dest.display()))?;
+
+        let backup = rusqlite::backup::Backup::new(&self.conn, &mut dest_conn)
+            .context("failed to initialize SQLite backup")?;
+
+        // Copy all pages in one step (-1 means copy everything)
+        backup
+            .step(-1)
+            .context("failed to complete SQLite backup")?;
+
+        Ok(())
+    }
+
+    /// Restore a database from a backup file.
+    /// This is a static method because it replaces the database file entirely.
+    /// The caller must ensure exclusive access (no other process has the database open).
+    pub fn restore_from(source: &Path, dest: &Path) -> Result<()> {
+        if !source.exists() {
+            anyhow::bail!("backup file does not exist: {}", source.display());
+        }
+
+        // Try to acquire an exclusive lock on the destination database.
+        // If another process (e.g., the MCP server) has it open, this will fail.
+        if dest.exists() {
+            let conn = Connection::open(dest)
+                .with_context(|| format!("failed to open database at {}", dest.display()))?;
+            // Attempt to get an exclusive lock by starting an exclusive transaction
+            conn.execute_batch("BEGIN EXCLUSIVE").context(
+                "cannot acquire exclusive lock on database — is the MCP server running?",
+            )?;
+            conn.execute_batch("ROLLBACK")?;
+            drop(conn);
+        }
+
+        // Open the source backup and copy it to the destination
+        let src_conn = Connection::open(source)
+            .with_context(|| format!("failed to open backup source at {}", source.display()))?;
+
+        // Validate that the source is a valid SQLite database
+        src_conn
+            .execute_batch("SELECT count(*) FROM sqlite_master")
+            .context("backup file is not a valid SQLite database")?;
+
+        // Remove existing destination and WAL/SHM files
+        if dest.exists() {
+            std::fs::remove_file(dest).with_context(|| {
+                format!("failed to remove existing database at {}", dest.display())
+            })?;
+        }
+        let wal_path = dest.with_extension("db-wal");
+        let shm_path = dest.with_extension("db-shm");
+        if wal_path.exists() {
+            let _ = std::fs::remove_file(&wal_path);
+        }
+        if shm_path.exists() {
+            let _ = std::fs::remove_file(&shm_path);
+        }
+
+        // Use SQLite backup API to copy source to destination
+        let mut dest_conn = Connection::open(dest).with_context(|| {
+            format!(
+                "failed to create destination database at {}",
+                dest.display()
+            )
+        })?;
+
+        let backup = rusqlite::backup::Backup::new(&src_conn, &mut dest_conn)
+            .context("failed to initialize restore backup")?;
+
+        backup
+            .step(-1)
+            .context("failed to complete database restore")?;
+
         Ok(())
     }
 }

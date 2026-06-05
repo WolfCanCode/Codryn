@@ -21,6 +21,11 @@ endif
 build: ensure-cargo
 	cargo build --release
 
+build-ui: ensure-node
+	cd ui && pnpm install && pnpm build
+
+build-all: build-ui build
+
 ensure-cargo:
 ifeq ($(OS),Windows_NT)
 	@where cargo >nul 2>&1 || ( \
@@ -34,4 +39,27 @@ else
 	}
 endif
 
-.PHONY: build install ensure-cargo
+ensure-node:
+ifeq ($(OS),Windows_NT)
+	@where node >nul 2>&1 || (echo Node.js 20+ required. Install from https://nodejs.org && exit /b 1)
+else
+	@command -v node >/dev/null 2>&1 || { \
+		echo "Node.js not found. Install Node.js 20+ from https://nodejs.org"; \
+		exit 1; \
+	}
+	@node -e "if(parseInt(process.versions.node)<20){process.stderr.write('Node.js 20+ required\n');process.exit(1)}"
+endif
+
+test:
+	SKIP_UI_BUILD=1 cargo test --all
+
+bench:
+	cargo bench -p codryn-bench
+
+check:
+	SKIP_UI_BUILD=1 cargo check --workspace
+
+clippy:
+	SKIP_UI_BUILD=1 cargo clippy --all-targets -- -D warnings
+
+.PHONY: build build-ui build-all install ensure-cargo ensure-node test bench check clippy

@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
-use std::io::Read;
+use anyhow::{bail, Result};
+use std::path::PathBuf;
 use std::process::Command;
 
-const DEFAULT_GITHUB_REPO: &str = "wolfcancode/codryn";
-const API_BASE: &str = "https://api.github.com/repos";
+const REPO_SSH: &str = "ssh://git@code.swisscom.com:2222/tommy.le/codryn.git";
+const REPO_HTTPS: &str = "https://code.swisscom.com/tommy.le/codryn.git";
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -14,21 +14,71 @@ const CYAN: &str = "\x1b[0;36m";
 const BLUE: &str = "\x1b[0;34m";
 const WHITE: &str = "\x1b[1;37m";
 
+/// Returns the install directory for the cbm binary (~/.local/bin).
+pub fn install_dir() -> PathBuf {
+    let home = codryn_foundation::platform::home_dir().unwrap_or_else(|| "/tmp".into());
+    PathBuf::from(home).join(".local").join("bin")
+}
+
+/// Ensure the running binary is installed to ~/.local/bin/codryn.
+/// Copies the current executable there if it's not already in that location.
+/// Returns the path to the installed binary.
+pub fn ensure_binary_installed() -> Result<PathBuf> {
+    let current_bin = std::env::current_exe()?;
+    let dir = install_dir();
+    let ext = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let target_bin = dir.join(format!("codryn{ext}"));
+
+    // If already running from the install dir, nothing to do
+    if current_bin == target_bin {
+        return Ok(target_bin);
+    }
+
+    // If target already exists and is the same size, skip
+    if target_bin.exists() {
+        let src_meta = std::fs::metadata(&current_bin)?;
+        if let Ok(dst_meta) = std::fs::metadata(&target_bin) {
+            if src_meta.len() == dst_meta.len() {
+                return Ok(target_bin);
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&dir)?;
+    std::fs::copy(&current_bin, &target_bin)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&target_bin, std::fs::Permissions::from_mode(0o755));
+    }
+
+    // Code-sign on macOS
+    if cfg!(target_os = "macos") {
+        let _ = Command::new("codesign")
+            .args(["--sign", "-"])
+            .arg(&target_bin)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
+    Ok(target_bin)
+}
+
 fn banner() {
     eprintln!();
     eprintln!("  {BOLD}{BLUE}╔═══════════════════════════════════════════════════╗{RESET}");
     eprintln!("  {BOLD}{BLUE}║{RESET}                                                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                   {CYAN}╔═══════════╗{RESET}                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                   {CYAN}║{RESET}  {WHITE}▪{RESET}     {WHITE}▪{RESET}  {CYAN}║{RESET}                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                   {CYAN}║           ║{RESET}                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}      {CYAN}─────────────╢           ╟─────────────{RESET}      {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                   {CYAN}║           ║{RESET}                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                   {CYAN}╚═══╦═══╦═══╝{RESET}                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                       {CYAN}║   ║{RESET}                       {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                       {CYAN}╨   ╨{RESET}                       {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                                                   {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                 {WHITE}C  O  D  R  Y  N{RESET}                  {BOLD}{BLUE}║{RESET}");
-    eprintln!("  {BOLD}{BLUE}║{RESET}                  {DIM}agent warehouse{RESET}                  {BOLD}{BLUE}║{RESET}");
+    eprintln!("  {BOLD}{BLUE}║{RESET}   {CYAN}┌──┬──┐{RESET}  {WHITE}codryn{RESET}                    {BOLD}{BLUE}║{RESET}");
+    eprintln!("  {BOLD}{BLUE}║{RESET}   {CYAN}├──┼──┤{RESET}                                         {BOLD}{BLUE}║{RESET}");
+    eprintln!("  {BOLD}{BLUE}║{RESET}  {CYAN}=┤  │  ├={RESET}  {DIM}Persistent knowledge graph{RESET}            {BOLD}{BLUE}║{RESET}");
+    eprintln!("  {BOLD}{BLUE}║{RESET}   {CYAN}├──┼──┤{RESET}  {DIM}for AI coding agents{RESET}                   {BOLD}{BLUE}║{RESET}");
+    eprintln!("  {BOLD}{BLUE}║{RESET}   {CYAN}└──┴──┘{RESET}  {DIM}Author: Tommy Le{RESET}                       {BOLD}{BLUE}║{RESET}");
     eprintln!("  {BOLD}{BLUE}║{RESET}                                                   {BOLD}{BLUE}║{RESET}");
     eprintln!("  {BOLD}{BLUE}╚═══════════════════════════════════════════════════╝{RESET}");
     eprintln!();
@@ -54,183 +104,145 @@ fn spinner_line(msg: &str) {
     eprint!("    {DIM}{msg}…{RESET}");
 }
 
-fn done_line() {
+fn done() {
     eprintln!(" {GREEN}done{RESET}");
-}
-
-/// Map `std::env::consts` to the asset name used in GitHub releases.
-fn asset_name() -> Option<String> {
-    let os = match std::env::consts::OS {
-        "linux" => "linux",
-        "macos" => "macos",
-        _ => return None,
-    };
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        _ => return None,
-    };
-    Some(format!("codryn-{os}-{arch}.tar.gz"))
 }
 
 pub fn update() -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
-    let github_repo = std::env::var("CODRYN_GITHUB_REPO")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string());
-
     banner();
 
     step("Checking for updates");
     info(&format!("Current version: v{current}"));
 
-    // ── Fetch latest release from GitHub API ──────────────────────────────
-    spinner_line("Fetching latest release");
-    let url = format!("{API_BASE}/{github_repo}/releases/latest");
-    let response = ureq::get(&url)
-        .set("User-Agent", &format!("codryn/{current}"))
-        .set("Accept", "application/vnd.github+json")
-        .call()
-        .context("Failed to reach GitHub API")?;
+    // Fetch latest tag via git ls-remote
+    spinner_line("Fetching latest version");
+    let output = Command::new("git")
+        .args(["ls-remote", "--tags", REPO_SSH])
+        .output()
+        .or_else(|_| {
+            Command::new("git")
+                .args(["ls-remote", "--tags", REPO_HTTPS])
+                .output()
+        })?;
 
-    let release: serde_json::Value = response
-        .into_json()
-        .context("Failed to parse GitHub release JSON")?;
-    done_line();
+    if !output.status.success() {
+        done();
+        fail("Failed to check for updates (network error)");
+        bail!("Failed to fetch tags");
+    }
 
-    let latest_tag = release["tag_name"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No tag_name in release"))?;
-    let latest = latest_tag.trim_start_matches('v');
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let latest = stdout
+        .lines()
+        .filter_map(|line| line.split("refs/tags/").nth(1))
+        .filter(|tag| tag.starts_with('v') && !tag.ends_with("^{}"))
+        .max_by(|a, b| crate::version::compare_versions(a, b).cmp(&0))
+        .ok_or_else(|| anyhow::anyhow!("No version tags found"))?
+        .to_owned();
+    done();
 
-    if crate::version::compare_versions(latest_tag, current) <= 0 {
+    if crate::version::compare_versions(&latest, current) <= 0 {
         ok(&format!("Already up to date (v{current})"));
         eprintln!();
         return Ok(());
     }
 
-    ok(&format!("New version available: {BOLD}{latest_tag}{RESET}"));
-    info(&format!("v{current} → v{latest}"));
+    ok(&format!("New version available: {BOLD}{latest}{RESET}"));
+    info(&format!("v{current} → {latest}"));
 
-    // ── Find the right asset for this platform ────────────────────────────
-    let asset_file = asset_name().ok_or_else(|| {
-        anyhow::anyhow!(
-            "No pre-built binary for {}/{}. Build from source with: cargo install codryn",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        )
-    })?;
+    // Clone
+    step("Downloading source");
+    let tmp = std::env::temp_dir().join("codryn-update");
+    let _ = std::fs::remove_dir_all(&tmp);
 
-    let assets = release["assets"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("No assets in release"))?;
-
-    let asset_url = assets
-        .iter()
-        .find(|a| a["name"].as_str() == Some(&asset_file))
-        .and_then(|a| a["browser_download_url"].as_str())
-        .ok_or_else(|| anyhow::anyhow!("Asset {asset_file} not found in release {latest_tag}"))?
-        .to_owned();
-
-    // ── Download ──────────────────────────────────────────────────────────
-    step(&format!("Downloading {latest_tag}"));
-    info(&format!("Asset: {asset_file}"));
-
-    spinner_line("Downloading binary");
-    let resp = ureq::get(&asset_url)
-        .set("User-Agent", &format!("codryn/{current}"))
-        .call()
-        .context("Failed to download release asset")?;
-
-    let mut compressed = Vec::new();
-    resp.into_reader()
-        .read_to_end(&mut compressed)
-        .context("Failed to read download stream")?;
-    done_line();
-
-    // ── Extract codryn binary from tar.gz ─────────────────────────────────
-    spinner_line("Extracting binary");
-    let decoder = flate2::read::GzDecoder::new(compressed.as_slice());
-    let mut archive = tar::Archive::new(decoder);
-
-    let tmp_bin = std::env::temp_dir().join("codryn-update-bin");
-    let mut extracted = false;
-
-    for entry in archive.entries().context("Failed to read tar archive")? {
-        let mut entry = entry.context("Failed to read tar entry")?;
-        let path = entry.path().context("Invalid path in archive")?;
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        if name == "codryn" || name == "codryn.exe" {
-            entry.unpack(&tmp_bin).context("Failed to extract binary")?;
-            extracted = true;
-            break;
-        }
-    }
-    done_line();
-
-    if !extracted {
-        bail!("codryn binary not found inside {asset_file}");
-    }
-
-    // ── Replace running binary ─────────────────────────────────────────────
-    step("Installing");
-    let current_bin = std::env::current_exe()?;
-
-    // Set executable bit on the extracted binary
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&tmp_bin)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&tmp_bin, perms)?;
-    }
-
-    spinner_line(&format!("Replacing {}", current_bin.display()));
-    let replaced = std::fs::copy(&tmp_bin, &current_bin).is_ok()
-        || Command::new("sudo")
-            .args(["cp", "-f"])
-            .arg(&tmp_bin)
-            .arg(&current_bin)
+    spinner_line(&format!("Cloning {latest}"));
+    let cloned = Command::new("git")
+        .args(["clone", "--depth=1", "--branch", &latest, REPO_SSH])
+        .arg(&tmp)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+        || Command::new("git")
+            .args(["clone", "--depth=1", "--branch", &latest, REPO_HTTPS])
+            .arg(&tmp)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
 
-    let _ = std::fs::remove_file(&tmp_bin);
-
-    if !replaced {
-        fail(&format!(
-            "Failed to replace binary at {}",
-            current_bin.display()
-        ));
-        bail!("Failed to replace binary");
+    if !cloned {
+        done();
+        fail("Failed to clone repository");
+        bail!("Clone failed");
     }
-    done_line();
+    done();
+
+    // Build
+    step("Compiling");
+    info("This may take 1–3 minutes…");
+    let build = Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(&tmp)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+    if !build.success() {
+        fail("Build failed");
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("cargo build --release failed");
+    }
+    ok("Compilation complete");
+
+    // Install binary to ~/.local/bin (no sudo needed)
+    step("Installing");
+    let ext = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let new_bin = tmp.join(format!("target/release/codryn{ext}"));
+    let install_dir = install_dir();
+    let target_bin = install_dir.join(format!("codryn{ext}"));
+
+    spinner_line(&format!("Installing to {}", target_bin.display()));
+    std::fs::create_dir_all(&install_dir)?;
+    if std::fs::copy(&new_bin, &target_bin).is_err() {
+        done();
+        fail(&format!(
+            "Failed to copy binary to {}",
+            target_bin.display()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("Failed to install binary");
+    }
+
+    // Make executable on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&target_bin, std::fs::Permissions::from_mode(0o755));
+    }
+    done();
 
     if cfg!(target_os = "macos") {
         spinner_line("Code-signing (macOS)");
         let _ = Command::new("codesign")
             .args(["--sign", "-"])
-            .arg(&current_bin)
+            .arg(&target_bin)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status()
-            .or_else(|_| {
-                Command::new("sudo")
-                    .args(["codesign", "--sign", "-"])
-                    .arg(&current_bin)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-            });
-        done_line();
+            .status();
+        done();
     }
 
+    let _ = std::fs::remove_dir_all(&tmp);
+
     eprintln!();
-    eprintln!("  {GREEN}{BOLD}✓ Updated codryn: v{current} → v{latest}{RESET}");
+    eprintln!("  {GREEN}{BOLD}✓ Updated codryn: v{current} → {latest}{RESET}");
     eprintln!();
     Ok(())
 }

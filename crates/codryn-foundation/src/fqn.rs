@@ -87,8 +87,10 @@ mod tests {
             "my-project"
         );
         assert_eq!(
-            project_name_from_path("/Users/taaleto7/Documents/work/mcp-tools/codryn"),
-            "codryn"
+            project_name_from_path(
+                "/Users/taaleto7/Documents/work/mcp-tools/codryn-rs"
+            ),
+            "codryn-rs"
         );
         assert_eq!(project_name_from_path(""), "root");
         assert_eq!(project_name_from_path("/"), "root");

@@ -1,4 +1,4 @@
-//! Tree-sitter grammar integration for Codryn.
+//! Tree-sitter grammar integration for cbm.
 //!
 //! This crate wraps tree-sitter grammar initialization and provides a unified
 //! AST walking interface for extracting symbols from source files.
@@ -6,15 +6,34 @@
 
 mod bash_walker;
 mod c_walker;
+mod clojure_walker;
 mod csharp_walker;
+mod dart_walker;
 mod elixir_walker;
+mod erlang_walker;
+mod fsharp_walker;
+mod go_walker;
+mod graphql_walker;
+mod haskell_walker;
+mod hcl_walker;
+mod java_walker;
+mod julia_walker;
+mod kotlin_walker;
+mod lua_walker;
+mod nim_walker;
+mod ocaml_walker;
+mod perl_walker;
 mod php_walker;
+mod protobuf_walker;
 mod python_walker;
+mod r_walker;
 mod ruby_walker;
 mod rust_walker;
 mod scala_walker;
+mod sql_walker;
 mod swift_walker;
 mod ts_walker;
+mod zig_walker;
 
 use codryn_discover::Language;
 use tree_sitter::Parser;
@@ -74,11 +93,14 @@ pub fn parser_for_language(lang: Language) -> Option<Parser> {
         Language::Scala => tree_sitter_scala::LANGUAGE,
         Language::Elixir => tree_sitter_elixir::LANGUAGE,
         Language::Bash => tree_sitter_bash::LANGUAGE,
-        // Java, Kotlin, Go already have AST extractors in codryn-pipeline
-        Language::Java | Language::Kotlin | Language::Go => return None,
+        Language::Go => tree_sitter_go::LANGUAGE,
+        Language::Java => tree_sitter_java::LANGUAGE,
+        Language::Kotlin => tree_sitter_kotlin_ng::LANGUAGE,
+        Language::Dart => tree_sitter_dart::LANGUAGE,
+        Language::Lua => tree_sitter_lua::LANGUAGE,
+        Language::Haskell => tree_sitter_haskell::LANGUAGE,
         _ => return None,
     };
-
     let mut parser = Parser::new();
     parser.set_language(&ts_lang.into()).ok()?;
     Some(parser)
@@ -95,6 +117,27 @@ pub fn parser_for_language(lang: Language) -> Option<Parser> {
 /// tolerated — tree-sitter is designed for error recovery and the rest of the
 /// tree is still usable.
 pub fn extract_symbols(lang: Language, source: &str) -> Option<Vec<TsSymbol>> {
+    // Regex-fallback walkers: no tree-sitter parser needed.
+    // We create a dummy tree just to satisfy the signature (it's ignored).
+    match lang {
+        Language::Julia
+        | Language::Zig
+        | Language::Nim
+        | Language::OCaml
+        | Language::Perl
+        | Language::R
+        | Language::Clojure
+        | Language::Erlang
+        | Language::FSharp
+        | Language::Hcl
+        | Language::Protobuf
+        | Language::GraphQL
+        | Language::Sql => {
+            return Some(extract_regex_symbols(lang, source));
+        }
+        _ => {}
+    }
+
     let mut parser = parser_for_language(lang)?;
     let tree = parser.parse(source, None)?;
 
@@ -118,10 +161,41 @@ pub fn extract_symbols(lang: Language, source: &str) -> Option<Vec<TsSymbol>> {
         Language::Scala => scala_walker::walk_tree(&tree, source),
         Language::Elixir => elixir_walker::walk_tree(&tree, source),
         Language::Bash => bash_walker::walk_tree(&tree, source),
+        Language::Go => go_walker::walk_tree(&tree, source),
+        Language::Java => java_walker::walk_tree(&tree, source),
+        Language::Kotlin => kotlin_walker::walk_tree(&tree, source),
+        Language::Dart => dart_walker::walk_tree(&tree, source),
+        Language::Lua => lua_walker::walk_tree(&tree, source),
+        Language::Haskell => haskell_walker::walk_tree(&tree, source),
         _ => return None,
     };
-
     Some(symbols)
+}
+
+/// Dispatch to regex-fallback walkers (no tree-sitter parser needed).
+fn extract_regex_symbols(lang: Language, source: &str) -> Vec<TsSymbol> {
+    // Create a minimal dummy tree for the signature. We use Bash parser as it's lightweight.
+    let mut parser = Parser::new();
+    let ts_lang: tree_sitter::Language = tree_sitter_bash::LANGUAGE.into();
+    parser.set_language(&ts_lang).ok();
+    let tree = parser.parse("", None).unwrap();
+
+    match lang {
+        Language::Julia => julia_walker::walk_tree(&tree, source),
+        Language::Zig => zig_walker::walk_tree(&tree, source),
+        Language::Nim => nim_walker::walk_tree(&tree, source),
+        Language::OCaml => ocaml_walker::walk_tree(&tree, source),
+        Language::Perl => perl_walker::walk_tree(&tree, source),
+        Language::R => r_walker::walk_tree(&tree, source),
+        Language::Clojure => clojure_walker::walk_tree(&tree, source),
+        Language::Erlang => erlang_walker::walk_tree(&tree, source),
+        Language::FSharp => fsharp_walker::walk_tree(&tree, source),
+        Language::Hcl => hcl_walker::walk_tree(&tree, source),
+        Language::Protobuf => protobuf_walker::walk_tree(&tree, source),
+        Language::GraphQL => graphql_walker::walk_tree(&tree, source),
+        Language::Sql => sql_walker::walk_tree(&tree, source),
+        _ => vec![],
+    }
 }
 
 #[cfg(test)]
@@ -503,13 +577,17 @@ struct Point {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn unsupported_language_returns_none() {
+    fn java_class_extraction() {
         let src = "public class Main { public static void main(String[] args) {} }";
         let result = extract_symbols(Language::Java, src);
         assert!(
-            result.is_none(),
-            "Java should return None (no tree-sitter grammar)"
+            result.is_some(),
+            "Java should return Some (tree-sitter grammar available)"
         );
+        let syms = result.unwrap();
+        let cls = syms.iter().find(|s| s.name == "Main" && s.label == "Class");
+        assert!(cls.is_some(), "Class Main not found");
+        assert!(cls.unwrap().is_exported);
     }
 
     #[test]
@@ -517,6 +595,44 @@ struct Point {
         let src = "some random content";
         let result = extract_symbols(Language::Unknown, src);
         assert!(result.is_none(), "Unknown language should return None");
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Go extraction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn go_function_extraction() {
+        let src = r#"
+// Add adds two integers.
+func Add(a int, b int) int {
+    return a + b
+}
+"#;
+        let syms = extract_symbols(Language::Go, src).unwrap();
+        let f = syms
+            .iter()
+            .find(|s| s.name == "Add")
+            .expect("Add not found");
+        assert_eq!(f.label, "Function");
+        assert!(f.is_exported);
+        assert_eq!(f.return_type.as_deref(), Some("int"));
+    }
+
+    #[test]
+    fn go_struct_extraction() {
+        let src = r#"
+type User struct {
+    Name string
+    Age  int
+}
+"#;
+        let syms = extract_symbols(Language::Go, src).unwrap();
+        let s = syms
+            .iter()
+            .find(|s| s.name == "User" && s.label == "Class")
+            .expect("User struct not found");
+        assert!(s.is_exported);
     }
 
     // -----------------------------------------------------------------------

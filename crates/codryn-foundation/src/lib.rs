@@ -1,6 +1,8 @@
 pub mod arena;
 pub mod complexity;
+pub mod config;
 pub mod fqn;
+pub mod ide_detect;
 pub mod minhash;
 pub mod platform;
 pub mod scope_matching;

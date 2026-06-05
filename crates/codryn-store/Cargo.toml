@@ -11,10 +11,13 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
+thiserror.workspace = true  # declared for future typed errors; not yet used
 regex.workspace = true
 chrono.workspace = true
 zstd.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
 
 [dev-dependencies]
 proptest = "1"
+tempfile = "3"
+tokio = { workspace = true, features = ["full"] }

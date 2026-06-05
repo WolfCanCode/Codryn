@@ -32,7 +32,14 @@ pub fn run_doctor() -> DoctorReport {
         .join("graph.db");
 
     let agents = vec![
-        check_claude_code_agent(&home),
+        check_agent(
+            &home,
+            "Claude Code",
+            ".claude/mcp_servers.json",
+            Some(".claude/CLAUDE.md"),
+            &["Claude"],
+            &[],
+        ),
         check_agent(
             &home,
             "VS Code",
@@ -77,7 +84,7 @@ pub fn run_doctor() -> DoctorReport {
             &home,
             "Kiro",
             ".kiro/settings/mcp.json",
-            Some(".kiro/steering/codryn.md"),
+            Some(".kiro/steering/codebase-memory.md"),
             &["Kiro"],
             &["kiro-cli", "kiro"],
         ),
@@ -119,9 +126,7 @@ fn check_agent(
     let configured = config_path.exists() && has_codryn_entry(&config_path);
 
     let has_instructions = instr_path.as_ref().is_some_and(|p| {
-        p.exists()
-            && std::fs::read_to_string(p)
-                .is_ok_and(|c| c.contains("codryn") || c.contains("codebase-memory-mcp"))
+        p.exists() && std::fs::read_to_string(p).is_ok_and(|c| c.contains("codryn"))
     });
 
     AgentStatus {
@@ -136,42 +141,8 @@ fn check_agent(
     }
 }
 
-/// Check Claude Code agent status, looking in both ~/.claude.json (modern) and mcp_servers.json (legacy).
-fn check_claude_code_agent(home: &str) -> AgentStatus {
-    let claude_dir = PathBuf::from(home).join(".claude");
-    let claude_json = PathBuf::from(home).join(".claude.json");
-    let legacy_config = claude_dir.join("mcp_servers.json");
-    let instr_path = claude_dir.join("CLAUDE.md");
-
-    let installed = app_exists("Claude") || which("claude") || claude_dir.exists();
-
-    // Check modern ~/.claude.json first, then legacy mcp_servers.json
-    let configured = has_codryn_entry(&claude_json) || has_codryn_entry(&legacy_config);
-
-    let has_instructions = instr_path.exists()
-        && std::fs::read_to_string(&instr_path)
-            .is_ok_and(|c| c.contains("codryn") || c.contains("codebase-memory-mcp"));
-
-    // Report primary config path: use .claude.json if it has the entry, else legacy
-    let config_path = if has_codryn_entry(&claude_json) {
-        claude_json
-    } else {
-        legacy_config
-    };
-
-    AgentStatus {
-        name: "Claude Code".to_string(),
-        installed,
-        configured,
-        config_path: config_path.to_string_lossy().to_string(),
-        has_instructions,
-        instructions_path: instr_path.to_string_lossy().to_string(),
-    }
-}
-
 fn has_codryn_entry(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .is_ok_and(|c| c.contains("codryn") || c.contains("codebase-memory-mcp"))
+    std::fs::read_to_string(path).is_ok_and(|c| c.contains("codryn"))
 }
 
 fn app_exists(name: &str) -> bool {

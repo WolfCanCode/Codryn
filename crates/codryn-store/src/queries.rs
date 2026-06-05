@@ -1,8 +1,11 @@
 use crate::node_from_row;
 use crate::types::*;
 use crate::{FileDiagnostics, ImpactResult, NeighborInfo};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{params, OptionalExtension};
+
+/// (node, edge_type, confidence, edge_source) — returned by reference/dependent queries.
+pub type EdgeWithConfidence = (Node, String, Option<f64>, Option<String>);
 
 const SCORE_CUTOFF: f64 = 0.3;
 
@@ -129,14 +132,18 @@ impl crate::Store {
         if items.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to begin transaction for upsert_code_content_batch")?;
         {
             let mut stmt = tx.prepare("INSERT OR REPLACE INTO code_fts(project, qualified_name, content) VALUES (?1, ?2, ?3)")?;
             for (project, qn, content) in items {
                 stmt.execute(params![project, qn, content])?;
             }
         }
-        tx.commit()?;
+        tx.commit()
+            .context("failed to commit upsert_code_content_batch transaction")?;
         Ok(())
     }
 
@@ -147,7 +154,10 @@ impl crate::Store {
         if items.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to begin transaction for upsert_code_content_compressed")?;
         {
             let mut fts_stmt = tx.prepare(
                 "INSERT OR REPLACE INTO code_fts(project, qualified_name, content) VALUES (?1, ?2, ?3)",
@@ -165,7 +175,8 @@ impl crate::Store {
                 blob_stmt.execute(params![project, qn, compressed, is_compressed as i32])?;
             }
         }
-        tx.commit()?;
+        tx.commit()
+            .context("failed to commit upsert_code_content_compressed transaction")?;
         Ok(())
     }
 
@@ -433,6 +444,19 @@ impl crate::Store {
         target_name: Option<&str>,
         max_depth: i32,
     ) -> Result<Vec<(String, String, String, String)>> {
+        self.trace_calls_with_confidence(project, source_name, target_name, max_depth, None)
+    }
+
+    /// Trace call paths with optional min_confidence filter.
+    /// Only traverses edges with confidence >= min_confidence (or NULL confidence).
+    pub fn trace_calls_with_confidence(
+        &self,
+        project: &str,
+        source_name: &str,
+        target_name: Option<&str>,
+        max_depth: i32,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<(String, String, String, String)>> {
         let sources = self.search_nodes(project, source_name, 10)?;
         if sources.is_empty() {
             return Ok(vec![]);
@@ -446,17 +470,24 @@ impl crate::Store {
                 visited.insert(s.id);
             }
         }
-        let mut stmt = self.conn.prepare(
+        let sql = if min_confidence.is_some() {
             "SELECT e.target_id, n.name, n.file_path, src.name, src.file_path \
              FROM edges e JOIN nodes n ON n.id = e.target_id JOIN nodes src ON src.id = e.source_id \
-             WHERE e.source_id = ?1 AND e.type IN ('CALLS','ASYNC_CALLS') AND e.project = ?2",
-        )?;
+             WHERE e.source_id = ?1 AND e.type IN ('CALLS','ASYNC_CALLS') AND e.project = ?2 \
+             AND (e.confidence IS NULL OR e.confidence >= ?3)"
+        } else {
+            "SELECT e.target_id, n.name, n.file_path, src.name, src.file_path \
+             FROM edges e JOIN nodes n ON n.id = e.target_id JOIN nodes src ON src.id = e.source_id \
+             WHERE e.source_id = ?1 AND e.type IN ('CALLS','ASYNC_CALLS') AND e.project = ?2"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
         while let Some((node_id, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
             }
-            let rows: Vec<(i64, String, String, String, String)> = stmt
-                .query_map(params![node_id, project], |row| {
+            let rows: Vec<(i64, String, String, String, String)> = if let Some(mc) = min_confidence
+            {
+                stmt.query_map(params![node_id, project, mc], |row| {
                     Ok((
                         row.get(0)?,
                         row.get(1)?,
@@ -466,7 +497,20 @@ impl crate::Store {
                     ))
                 })?
                 .filter_map(|r| r.ok())
-                .collect();
+                .collect()
+            } else {
+                stmt.query_map(params![node_id, project], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect()
+            };
             for (tgt_id, tgt_name, tgt_file, src_name, src_file) in rows {
                 results.push((src_name.clone(), tgt_name.clone(), src_file, tgt_file));
                 if let Some(target) = target_name {
@@ -581,9 +625,12 @@ impl crate::Store {
             })?;
             for r in rows.flatten() {
                 let et: &String = &r.5;
-                if edge_types.is_none() || edge_types.unwrap().iter().any(|t| t == et) {
-                    results.push(r);
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| t == et) {
+                        continue;
+                    }
                 }
+                results.push(r);
             }
         }
         if direction == "out" || direction == "both" {
@@ -603,9 +650,12 @@ impl crate::Store {
             })?;
             for r in rows.flatten() {
                 let et: &String = &r.5;
-                if edge_types.is_none() || edge_types.unwrap().iter().any(|t| t == et) {
-                    results.push(r);
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| t == et) {
+                        continue;
+                    }
                 }
+                results.push(r);
             }
         }
         results.truncate(limit as usize);
@@ -620,21 +670,106 @@ impl crate::Store {
         edge_types: Option<&[&str]>,
         limit: i32,
     ) -> Result<Vec<(Node, String)>> {
-        let mut stmt = self.conn.prepare(
+        self.incoming_references_with_confidence(node_id, edge_types, limit, None)
+    }
+
+    /// Incoming references with optional min_confidence filter.
+    pub fn incoming_references_with_confidence(
+        &self,
+        node_id: i64,
+        edge_types: Option<&[&str]>,
+        limit: i32,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<(Node, String)>> {
+        let sql = if min_confidence.is_some() {
             "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties, e.type \
-             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![node_id, limit], |r| {
-            Ok((node_from_row(r)?, r.get::<_, String>(9)?))
-        })?;
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 AND (e.confidence IS NULL OR e.confidence >= ?2) LIMIT ?3"
+        } else {
+            "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties, e.type \
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 LIMIT ?2"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
         let mut results = Vec::new();
-        for r in rows.flatten() {
-            if let Some(types) = edge_types {
-                if !types.iter().any(|t| *t == r.1) {
-                    continue;
+        if let Some(mc) = min_confidence {
+            let rows = stmt.query_map(params![node_id, mc, limit], |r| {
+                Ok((node_from_row(r)?, r.get::<_, String>(9)?))
+            })?;
+            for r in rows.flatten() {
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| *t == r.1) {
+                        continue;
+                    }
                 }
+                results.push(r);
             }
-            results.push(r);
+        } else {
+            let rows = stmt.query_map(params![node_id, limit], |r| {
+                Ok((node_from_row(r)?, r.get::<_, String>(9)?))
+            })?;
+            for r in rows.flatten() {
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| *t == r.1) {
+                        continue;
+                    }
+                }
+                results.push(r);
+            }
+        }
+        Ok(results)
+    }
+
+    /// Incoming references with full confidence metadata in results.
+    /// Returns (node, edge_type, confidence, edge_source) tuples.
+    pub fn incoming_references_detailed(
+        &self,
+        node_id: i64,
+        edge_types: Option<&[&str]>,
+        limit: i32,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<EdgeWithConfidence>> {
+        let sql = if min_confidence.is_some() {
+            "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties, e.type, e.confidence, e.edge_source \
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 AND (e.confidence IS NULL OR e.confidence >= ?2) LIMIT ?3"
+        } else {
+            "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties, e.type, e.confidence, e.edge_source \
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 LIMIT ?2"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut results = Vec::new();
+        if let Some(mc) = min_confidence {
+            let rows = stmt.query_map(params![node_id, mc, limit], |r| {
+                Ok((
+                    node_from_row(r)?,
+                    r.get::<_, String>(9)?,
+                    r.get::<_, Option<f64>>(10)?,
+                    r.get::<_, Option<String>>(11)?,
+                ))
+            })?;
+            for r in rows.flatten() {
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| *t == r.1) {
+                        continue;
+                    }
+                }
+                results.push(r);
+            }
+        } else {
+            let rows = stmt.query_map(params![node_id, limit], |r| {
+                Ok((
+                    node_from_row(r)?,
+                    r.get::<_, String>(9)?,
+                    r.get::<_, Option<f64>>(10)?,
+                    r.get::<_, Option<String>>(11)?,
+                ))
+            })?;
+            for r in rows.flatten() {
+                if let Some(types) = edge_types {
+                    if !types.iter().any(|t| *t == r.1) {
+                        continue;
+                    }
+                }
+                results.push(r);
+            }
         }
         Ok(results)
     }
@@ -642,6 +777,18 @@ impl crate::Store {
     // ── Impact Traversal (BFS) ────────────────────────────
 
     pub fn impact_bfs(&self, node_id: i64, max_depth: i32, limit: i32) -> Result<ImpactResult> {
+        self.impact_bfs_with_confidence(node_id, max_depth, limit, None)
+    }
+
+    /// Impact BFS with optional min_confidence filter.
+    /// Only traverses edges with confidence >= min_confidence (or NULL confidence).
+    pub fn impact_bfs_with_confidence(
+        &self,
+        node_id: i64,
+        max_depth: i32,
+        limit: i32,
+        min_confidence: Option<f64>,
+    ) -> Result<ImpactResult> {
         let mut visited = std::collections::HashSet::new();
         let mut queue = std::collections::VecDeque::new();
         let mut direct = Vec::new();
@@ -649,10 +796,14 @@ impl crate::Store {
         let mut files = std::collections::HashSet::new();
         visited.insert(node_id);
         queue.push_back((node_id, 0i32));
-        let mut stmt = self.conn.prepare(
+        let sql = if min_confidence.is_some() {
             "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties \
-             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1",
-        )?;
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1 AND (e.confidence IS NULL OR e.confidence >= ?2)"
+        } else {
+            "SELECT n.id, n.project, n.label, n.name, n.qualified_name, n.file_path, n.start_line, n.end_line, n.properties \
+             FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id = ?1"
+        };
+        let mut stmt = self.conn.prepare(sql)?;
         while let Some((nid, depth)) = queue.pop_front() {
             if depth >= max_depth {
                 continue;
@@ -660,10 +811,15 @@ impl crate::Store {
             if all.len() >= limit as usize {
                 break;
             }
-            let rows: Vec<Node> = stmt
-                .query_map(params![nid], node_from_row)?
-                .filter_map(|r| r.ok())
-                .collect();
+            let rows: Vec<Node> = if let Some(mc) = min_confidence {
+                stmt.query_map(params![nid, mc], node_from_row)?
+                    .filter_map(|r| r.ok())
+                    .collect()
+            } else {
+                stmt.query_map(params![nid], node_from_row)?
+                    .filter_map(|r| r.ok())
+                    .collect()
+            };
             for n in rows {
                 if visited.contains(&n.id) {
                     continue;
@@ -682,6 +838,17 @@ impl crate::Store {
         let mut file_list: Vec<String> = files.into_iter().collect();
         file_list.sort();
         Ok((direct, all, file_list))
+    }
+
+    /// Get direct dependents of a node with confidence metadata.
+    /// Returns (node, edge_type, confidence, edge_source) for each incoming edge.
+    pub fn direct_dependents_with_confidence(
+        &self,
+        node_id: i64,
+        limit: i32,
+        min_confidence: Option<f64>,
+    ) -> Result<Vec<EdgeWithConfidence>> {
+        self.incoming_references_detailed(node_id, None, limit, min_confidence)
     }
 
     // ── File Diagnostics / Navigation ─────────────────────
@@ -757,14 +924,18 @@ impl crate::Store {
         self.conn
             .execute_batch("CREATE TEMP TABLE IF NOT EXISTS _live_paths (p TEXT PRIMARY KEY)")?;
         self.conn.execute("DELETE FROM _live_paths", [])?;
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to begin transaction for mark_deleted_files")?;
         {
             let mut stmt = tx.prepare("INSERT OR IGNORE INTO _live_paths (p) VALUES (?1)")?;
             for p in live_paths {
                 stmt.execute(params![p])?;
             }
         }
-        tx.commit()?;
+        tx.commit()
+            .context("failed to commit mark_deleted_files transaction")?;
         let count = self.conn.execute(
             "UPDATE file_hashes SET is_deleted = 1 WHERE project = ?1 AND rel_path NOT IN (SELECT p FROM _live_paths)",
             params![project],
@@ -814,7 +985,10 @@ impl crate::Store {
         if file_paths.is_empty() {
             return Ok(0);
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("failed to begin transaction for delete_nodes_for_changed_files")?;
         let mut total = 0usize;
         {
             let mut stmt = tx.prepare(
@@ -825,7 +999,8 @@ impl crate::Store {
                 total += count;
             }
         }
-        tx.commit()?;
+        tx.commit()
+            .context("failed to commit delete_nodes_for_changed_files transaction")?;
         if total > 0 {
             tracing::info!(
                 count = total,
@@ -908,7 +1083,6 @@ impl crate::Store {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
-    /// Return distinct non-null `source` values from Route node properties.
     pub fn get_route_sources(&self, project: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT json_extract(properties, '$.source') \
@@ -1066,7 +1240,6 @@ impl crate::Store {
                 method: http_method,
                 path,
                 handler: handler_name,
-                route_node_qn: route.qualified_name.clone(),
                 qualified_name: handler_qn,
                 file_path,
                 controller: route.file_path.clone(),
@@ -1088,6 +1261,135 @@ impl crate::Store {
     }
 
     // ── Metadata Filtering ────────────────────────────────
+
+    // ── Doc Coverage Query ────────────────────────────────
+
+    /// Query documentation coverage grouped by module (file_path).
+    ///
+    /// Returns one row per file that contains at least one public symbol
+    /// (Function, Method, Class, Interface), ordered by coverage ascending
+    /// so the least-documented modules appear first.
+    ///
+    /// `module_filter` is an optional substring filter on `file_path`.
+    /// Pass `""` or `None` to include all modules.
+    pub fn query_doc_coverage(
+        &self,
+        project: &str,
+        module_filter: Option<&str>,
+    ) -> Result<Vec<crate::DocCoverageRow>> {
+        let filter = module_filter.unwrap_or("");
+        let mut stmt = self.conn.prepare(
+            "SELECT \
+                file_path as module, \
+                COUNT(*) as total, \
+                SUM(CASE WHEN json_extract(properties, '$.has_docs') = 1 THEN 1 ELSE 0 END) as documented \
+             FROM nodes \
+             WHERE project = ?1 \
+               AND label IN ('Function', 'Method', 'Class', 'Interface') \
+               AND (json_extract(properties, '$.is_test') IS NULL OR json_extract(properties, '$.is_test') = 0) \
+               AND (?2 = '' OR file_path LIKE '%' || ?2 || '%') \
+             GROUP BY file_path \
+             ORDER BY (CAST(SUM(CASE WHEN json_extract(properties, '$.has_docs') = 1 THEN 1 ELSE 0 END) AS REAL) / COUNT(*)) ASC, COUNT(*) DESC",
+        )?;
+        let rows = stmt.query_map(params![project, filter], |r| {
+            let total: i64 = r.get(1)?;
+            let documented: i64 = r.get(2)?;
+            Ok((r.get::<_, String>(0)?, total, documented))
+        })?;
+        let mut results = Vec::new();
+        for row in rows.flatten() {
+            let (module, total, documented) = row;
+            let total_u = total as u32;
+            let documented_u = documented as u32;
+            let coverage_pct = if total > 0 {
+                documented as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            results.push(crate::DocCoverageRow {
+                module,
+                total_symbols: total_u,
+                documented_symbols: documented_u,
+                coverage_pct,
+                needs_attention: coverage_pct < 50.0,
+            });
+        }
+        Ok(results)
+    }
+
+    // ── Complexity Query ──────────────────────────────────
+
+    /// Query nodes that have complexity metrics stored in properties_json.
+    ///
+    /// Returns rows ordered by cyclomatic_complexity DESC, cognitive_complexity DESC.
+    /// Only nodes where `cyclomatic_complexity >= min_cyclomatic` AND
+    /// `cognitive_complexity >= min_cognitive` are returned.
+    pub fn query_complexity(
+        &self,
+        project: &str,
+        min_cyclomatic: i64,
+        min_cognitive: i64,
+        limit: i64,
+    ) -> Result<Vec<crate::ComplexityRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name, file_path, start_line, \
+             CAST(json_extract(properties, '$.cyclomatic_complexity') AS INTEGER) as cyclomatic, \
+             CAST(json_extract(properties, '$.cognitive_complexity') AS INTEGER) as cognitive \
+             FROM nodes \
+             WHERE project = ?1 \
+               AND json_extract(properties, '$.cyclomatic_complexity') IS NOT NULL \
+               AND CAST(json_extract(properties, '$.cyclomatic_complexity') AS INTEGER) >= ?2 \
+               AND CAST(json_extract(properties, '$.cognitive_complexity') AS INTEGER) >= ?3 \
+             ORDER BY cyclomatic DESC, cognitive DESC \
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![project, min_cyclomatic, min_cognitive, limit],
+            |r| {
+                Ok(crate::ComplexityRow {
+                    name: r.get(0)?,
+                    qualified_name: r.get(1)?,
+                    file_path: r.get(2)?,
+                    start_line: r.get(3)?,
+                    cyclomatic_complexity: r.get::<_, i64>(4)? as u32,
+                    cognitive_complexity: r.get::<_, i64>(5)? as u32,
+                })
+            },
+        )?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    /// Query nodes that have git history data (git_commits) stored in properties_json.
+    ///
+    /// Returns rows ordered by git_commits DESC.
+    /// Only nodes where `git_commits` is present and > 0 are returned.
+    pub fn query_hotspots(&self, project: &str, limit: i64) -> Result<Vec<crate::HotspotRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, qualified_name, label, file_path, start_line, \
+             CAST(json_extract(properties, '$.git_commits') AS INTEGER) as git_commits, \
+             CAST(json_extract(properties, '$.git_authors') AS INTEGER) as git_authors, \
+             COALESCE(json_extract(properties, '$.git_last_modified'), '') as git_last_modified \
+             FROM nodes \
+             WHERE project = ?1 \
+               AND json_extract(properties, '$.git_commits') IS NOT NULL \
+               AND CAST(json_extract(properties, '$.git_commits') AS INTEGER) > 0 \
+             ORDER BY git_commits DESC \
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![project, limit], |r| {
+            Ok(crate::HotspotRow {
+                name: r.get(0)?,
+                qualified_name: r.get(1)?,
+                label: r.get(2)?,
+                file_path: r.get(3)?,
+                start_line: r.get(4)?,
+                git_commits: r.get(5)?,
+                git_authors: r.get(6)?,
+                git_last_modified: r.get(7)?,
+            })
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
 
     pub fn get_nodes_by_metadata(
         &self,

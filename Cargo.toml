@@ -14,10 +14,11 @@ members = [
     "crates/codryn-watcher",
     "crates/codryn-bin",
     "crates/codryn-treesitter",
+    "crates/codryn-bench",
 ]
 
 [workspace.package]
-version = "1.5.1"
+version = "1.5.2"
 edition = "2021"
 license = "MIT"
 
@@ -25,12 +26,11 @@ license = "MIT"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 anyhow = "1"
 thiserror = "2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 rmcp = { version = "0.3", features = ["server", "transport-io"] }
 schemars = "1"
 axum = "0.8"
@@ -39,6 +39,9 @@ tree-sitter = "0.25"
 tree-sitter-java = "0.23"
 tree-sitter-go = "0.25"
 tree-sitter-kotlin-ng = "1"
+tree-sitter-dart = "0.1"
+tree-sitter-lua = "0.5"
+tree-sitter-haskell = "0.23"
 tree-sitter-language = "0.1"
 tree-sitter-typescript = "0.23"
 tree-sitter-javascript = "0.25"
@@ -65,12 +68,17 @@ rust-embed = "8"
 sha2 = "0.10"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+console = "0.15"
 dirs = "6"
 toml = "0.8"
+serde_yaml = "0.9"
 zstd = "0.13"
-ureq = { version = "2", features = ["json"] }
-flate2 = "1"
-tar = "0.4"
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray"] }
+ndarray = "0.16"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+ureq = "3"
+semver = "1"
 
 codryn-foundation = { path = "crates/codryn-foundation" }
 codryn-store = { path = "crates/codryn-store" }
@@ -84,3 +92,9 @@ codryn-cli = { path = "crates/codryn-cli" }
 codryn-ui = { path = "crates/codryn-ui" }
 codryn-watcher = { path = "crates/codryn-watcher" }
 codryn-treesitter = { path = "crates/codryn-treesitter" }
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
+flate2 = "1"
+tar = "0.4"
+
+codryn-bench = { path = "crates/codryn-bench" }

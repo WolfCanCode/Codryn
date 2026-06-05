@@ -1,5 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+/// Checkpoint record stored in `_index_progress` table for crash recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexCheckpoint {
+    pub project: String,
+    pub phase: String,
+    pub phase_index: u32,
+    pub files_processed: u32,
+    pub started_at: String,
+    pub completed: bool,
+    /// Optional index run ID linking this checkpoint to an `_index_runs` record.
+    pub run_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: i64,
@@ -79,7 +92,6 @@ pub struct ToolCall {
 pub struct ToolAnalytics {
     pub total_calls: i64,
     pub per_tool: Vec<ToolCount>,
-    pub per_source: Vec<SourceCount>,
     pub per_agent: Vec<AgentCount>,
     pub per_model: Vec<ModelCount>,
     pub total_input_tokens: i64,
@@ -89,12 +101,6 @@ pub struct ToolAnalytics {
     pub estimated_tokens_without_tools: i64,
     pub estimated_tokens_saved: i64,
     pub recent: Vec<ToolCall>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SourceCount {
-    pub source: String,
-    pub count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,7 +158,6 @@ pub struct RouteInfo {
     pub method: String,
     pub path: String,
     pub handler: String,
-    pub route_node_qn: String,
     pub qualified_name: String,
     pub file_path: String,
     pub controller: String,
@@ -162,4 +167,39 @@ pub struct RouteInfo {
     pub extraction_confidence: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+/// A single row returned by the complexity query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplexityRow {
+    pub name: String,
+    pub qualified_name: String,
+    pub file_path: String,
+    pub start_line: i32,
+    pub cyclomatic_complexity: u32,
+    pub cognitive_complexity: u32,
+}
+
+/// A row returned by the hotspot (git history) query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotspotRow {
+    pub name: String,
+    pub qualified_name: String,
+    pub label: String,
+    pub file_path: String,
+    pub start_line: i32,
+    pub git_commits: i64,
+    pub git_authors: i64,
+    pub git_last_modified: String,
+}
+
+/// A row returned by the doc coverage query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocCoverageRow {
+    pub module: String,
+    pub total_symbols: u32,
+    pub documented_symbols: u32,
+    pub coverage_pct: f64,
+    /// True if coverage is below 50%.
+    pub needs_attention: bool,
 }

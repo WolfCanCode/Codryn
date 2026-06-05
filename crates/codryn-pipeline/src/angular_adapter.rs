@@ -77,7 +77,7 @@ pub fn pass_angular(
                     let qn = fqn::fqn_compute(project, &f.rel_path, Some(&name));
                     class_qn = Some(qn.clone());
                     // Set decorator + layer on the existing node
-                    let dec_name = pending_dec.take().unwrap();
+                    let dec_name = pending_dec.take().expect("pending_dec checked above");
                     if let Some((_, layer)) =
                         DECORATORS.iter().find(|(d, _)| *d == dec_name.as_str())
                     {
@@ -96,7 +96,13 @@ pub fn pass_angular(
                         let sq = format!("{project}.selector.{sel}");
                         let p = serde_json::json!({"component": name, "selector": sel}).to_string();
                         buf.add_node("Selector", &sel, &sq, &f.rel_path, 0, 0, Some(p));
-                        buf.add_edge_by_qn(&sq, &qn, "SELECTS", None);
+                        buf.add_edge_with_confidence(
+                            &sq,
+                            &qn,
+                            "SELECTS",
+                            codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                            None,
+                        );
                     }
                 }
             }
@@ -108,7 +114,13 @@ pub fn pass_angular(
                     for c in INJECT_RE.captures_iter(t) {
                         let svc = c.get(1).unwrap().as_str();
                         if !SKIP_INJECT.contains(&svc) {
-                            buf.add_edge_by_qn(cqn, &format!("{project}.{svc}"), "INJECTS", None);
+                            buf.add_edge_with_confidence(
+                                cqn,
+                                &format!("{project}.{svc}"),
+                                "INJECTS",
+                                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                                None,
+                            );
                         }
                     }
                     if t.contains(')') {
@@ -135,7 +147,13 @@ pub fn pass_angular(
                         if let Ok(Some(child)) =
                             store.find_node_by_property(project, "selector", sel)
                         {
-                            buf.add_edge_by_qn(cqn, &child.qualified_name, "RENDERS", None);
+                            buf.add_edge_with_confidence(
+                                cqn,
+                                &child.qualified_name,
+                                "RENDERS",
+                                codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                                None,
+                            );
                         }
                     }
                 }

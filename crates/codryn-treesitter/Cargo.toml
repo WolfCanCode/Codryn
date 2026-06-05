@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 codryn-discover.workspace = true
+regex.workspace = true
 tracing.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language.workspace = true
@@ -22,3 +23,12 @@ tree-sitter-swift.workspace = true
 tree-sitter-scala.workspace = true
 tree-sitter-elixir.workspace = true
 tree-sitter-bash.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-kotlin-ng.workspace = true
+tree-sitter-dart.workspace = true
+tree-sitter-lua.workspace = true
+tree-sitter-haskell.workspace = true
+
+[dev-dependencies]
+proptest = "1"
