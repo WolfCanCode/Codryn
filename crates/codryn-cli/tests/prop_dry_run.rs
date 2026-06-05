@@ -7,8 +7,8 @@
 //! create/modify/delete operations while still printing descriptions of the
 //! operations that would have been performed.
 
-use codryn_cli::install::install_interactive;
-use codryn_cli::prompter::{MockPrompter, MockResponse};
+use codryn_cli::install::{install_interactive, mock_install_prompt_responses};
+use codryn_cli::prompter::MockPrompter;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -117,12 +117,12 @@ mod property4_dry_run_no_mutations {
                 // Non-interactive mode uses no prompts
                 vec![]
             } else {
-                vec![
-                    MockResponse::Select(scope_idx),
-                    MockResponse::MultiSelect(ide_selection),
-                    MockResponse::Select(steering_idx),
-                    MockResponse::Select(intensity_idx),
-                ]
+                mock_install_prompt_responses(
+                    scope_idx,
+                    ide_selection,
+                    steering_idx,
+                    intensity_idx,
+                )
             };
 
             let prompter = MockPrompter::new(responses);
@@ -192,12 +192,7 @@ mod property4_dry_run_no_mutations {
             None
         };
 
-        let prompter = MockPrompter::new(vec![
-            MockResponse::Select(0),           // scope: workspace-only
-            MockResponse::MultiSelect(vec![]), // no IDE selection
-            MockResponse::Select(0),           // steering: workspace-only
-            MockResponse::Select(1),           // intensity: full
-        ]);
+        let prompter = MockPrompter::new(mock_install_prompt_responses(0, vec![], 0, 1));
 
         let _ = install_interactive(&prompter, false, true, None);
 

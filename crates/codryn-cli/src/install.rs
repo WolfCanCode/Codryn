@@ -1176,6 +1176,28 @@ fn resolve_interactive(prompter: &dyn Prompter) -> Result<InstallConfig> {
     })
 }
 
+/// Build mock prompter responses for the interactive install flow.
+///
+/// Omits the IDE `MultiSelect` when no IDEs are detected, matching
+/// `resolve_interactive` behavior on clean CI runners.
+#[doc(hidden)]
+pub fn mock_install_prompt_responses(
+    scope_idx: usize,
+    ide_selection: Vec<usize>,
+    steering_idx: usize,
+    intensity_idx: usize,
+) -> Vec<crate::prompter::MockResponse> {
+    use crate::prompter::MockResponse;
+
+    let mut responses = vec![MockResponse::Select(scope_idx)];
+    if !detect_ides().is_empty() {
+        responses.push(MockResponse::MultiSelect(ide_selection));
+    }
+    responses.push(MockResponse::Select(steering_idx));
+    responses.push(MockResponse::Select(intensity_idx));
+    responses
+}
+
 /// Resolve configuration non-interactively from stored preferences or defaults.
 fn resolve_non_interactive() -> Result<InstallConfig> {
     let prefs = InstallPreferences::load()?;
@@ -1350,12 +1372,7 @@ mod tests_interactive {
 
     #[test]
     fn test_install_interactive_dry_run_no_mutations() {
-        let prompter = MockPrompter::new(vec![
-            MockResponse::Select(0),           // scope: workspace-only
-            MockResponse::MultiSelect(vec![]), // no IDEs (will be empty since detect_ides is real)
-            MockResponse::Select(0),           // steering: workspace-only
-            MockResponse::Select(1),           // intensity: full
-        ]);
+        let prompter = MockPrompter::new(mock_install_prompt_responses(0, vec![], 0, 1));
 
         let result = install_interactive(&prompter, false, true, None);
         assert!(result.is_ok());
@@ -1577,18 +1594,7 @@ mod tests_interactive {
     #[test]
     fn test_resolve_interactive_no_ides_skips_prompt() {
         // When detect_ides() returns empty, the IDE selection prompt is skipped.
-        // We can't control detect_ides() in tests directly, but we can verify
-        // that the info message about no IDEs is shown when it's empty.
-        // This test validates the flow structure by checking prompt ordering.
-        let prompter = MockPrompter::new(vec![
-            MockResponse::Select(1),           // scope: global
-            MockResponse::MultiSelect(vec![]), // IDE selection (may or may not be called)
-            MockResponse::Select(2),           // steering: no
-            MockResponse::Select(0),           // intensity: lite
-        ]);
-
-        // Note: This test exercises the flow; on CI/machines with IDEs installed,
-        // the multi_select will be consumed. On machines without, it won't be.
+        let prompter = MockPrompter::new(mock_install_prompt_responses(1, vec![], 2, 0));
         let _result = install_interactive(&prompter, false, true, None);
         // The key assertion is that it doesn't panic and ordering is maintained
     }

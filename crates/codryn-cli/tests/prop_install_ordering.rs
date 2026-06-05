@@ -11,8 +11,8 @@
 //! replaced with an Info message. The test verifies relative ordering of whatever
 //! Select/MultiSelect prompts are made.
 
-use codryn_cli::install::install_interactive;
-use codryn_cli::prompter::{MockPrompter, MockResponse, PromptCall};
+use codryn_cli::install::{install_interactive, mock_install_prompt_responses};
+use codryn_cli::prompter::{MockPrompter, PromptCall};
 use proptest::prelude::*;
 
 // ── Strategies ────────────────────────────────────────────────────────────────
@@ -116,15 +116,12 @@ proptest! {
         steering_idx in arb_steering_index(),
         intensity_idx in arb_intensity_index(),
     ) {
-        // Build responses: scope (Select), IDE (MultiSelect), steering (Select), intensity (Select)
-        // If no IDEs are detected on this machine, the MultiSelect won't be consumed,
-        // but we include it in case IDEs are present.
-        let responses = vec![
-            MockResponse::Select(scope_idx),
-            MockResponse::MultiSelect(ide_selection),
-            MockResponse::Select(steering_idx),
-            MockResponse::Select(intensity_idx),
-        ];
+        let responses = mock_install_prompt_responses(
+            scope_idx,
+            ide_selection,
+            steering_idx,
+            intensity_idx,
+        );
 
         let prompter = MockPrompter::new(responses);
 
