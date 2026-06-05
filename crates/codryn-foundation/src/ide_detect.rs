@@ -267,10 +267,8 @@ fn claude_config_dir(home: &Path) -> PathBuf {
             .map(|appdata| PathBuf::from(appdata).join("Claude"))
             .unwrap_or_else(|_| home.join("AppData/Roaming/Claude"))
     } else {
-        // Linux: XDG config
-        std::env::var("XDG_CONFIG_HOME")
-            .map(|xdg| PathBuf::from(xdg).join("claude"))
-            .unwrap_or_else(|_| home.join(".config/claude"))
+        // Linux: resolve relative to the provided home directory.
+        home.join(".config/claude")
     }
 }
 
