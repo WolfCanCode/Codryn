@@ -56,8 +56,8 @@ flowchart LR
 
 | Action | What it does |
 |:-------|:-------------|
-| `codryn install` | Writes MCP config to agent dotfiles (`~/.claude/`, `~/.cursor/`, etc.) |
-| `codryn install` | Writes instruction files (CLAUDE.md, AGENTS.md) that guide agents |
+| `codryn install` | Writes MCP config and steering files for detected MCP-compatible agents |
+| `codryn install` | Writes instruction files that guide agents to use codryn graph tools |
 | `codryn uninstall` | Removes all of the above cleanly |
 | `codryn install --dry-run` | Preview changes before writing |
 
@@ -70,7 +70,7 @@ flowchart LR
 | Rust binary | Compiled to a single static binary |
 | SQLite | Bundled via `rusqlite` (no system dependency) |
 | tree-sitter grammars | Compiled at build time from C/C++ source |
-| Angular dashboard | Embedded in binary at build time via `rust-embed` |
+| React dashboard | Embedded in binary at build time via `rust-embed` |
 | Runtime downloads | None. No dynamic loading. |
 
 ---

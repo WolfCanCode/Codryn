@@ -677,7 +677,10 @@ mod tests {
         let manager = McpConfigManager::new(&prompter);
 
         manager
-            .add(Path::new("/usr/local/bin/codryn"), std::slice::from_ref(&config_path))
+            .add(
+                Path::new("/usr/local/bin/codryn"),
+                std::slice::from_ref(&config_path),
+            )
             .unwrap();
 
         assert!(config_path.exists());
@@ -695,7 +698,10 @@ mod tests {
         let manager = McpConfigManager::new(&prompter);
 
         manager
-            .add(Path::new("/usr/local/bin/codryn"), std::slice::from_ref(&config_path))
+            .add(
+                Path::new("/usr/local/bin/codryn"),
+                std::slice::from_ref(&config_path),
+            )
             .unwrap();
 
         assert!(!config_path.exists());

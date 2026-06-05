@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-- Use `claude mcp add --scope user` for Claude Code MCP registration instead of legacy `mcp_servers.json` (`8b0cebe`)
+- Use MCP registration supported by the detected agent instead of legacy config formats (`8b0cebe`)
 - Ensure cleanup guard functions correctly in installation script (`1271931`)
 - Improve spinner output in installation script (`628241c`)
 

@@ -193,8 +193,8 @@ Every tool accepts an optional `analytics` parameter:
 ```json
 {
   "analytics": {
-    "agent_name": "kiro",
-    "model_name": "claude-sonnet-4.6"
+    "agent_name": "codryn-agent",
+    "model_name": "<your-model>"
   }
 }
 ```

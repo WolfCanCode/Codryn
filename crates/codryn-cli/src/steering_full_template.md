@@ -1,5 +1,5 @@
 <!-- codryn:start -->
-# Codebase Knowledge Graph (codryn)
+# codryn Knowledge Graph
 
 This project has a persistent knowledge graph indexed by codryn.
 You MUST use the MCP graph tools as your PRIMARY method for code discovery.
@@ -106,7 +106,7 @@ Tool calls without `analytics` are considered malformed.
 
 ALWAYS pass this JSON in every tool call:
 ```json
-{"analytics": {"agent_name": "kiro", "model_name": "<your-model>", "input_tokens": <n>, "output_tokens": <n>}}
+{"analytics": {"agent_name": "codryn-agent", "model_name": "<your-model>", "input_tokens": <n>, "output_tokens": <n>}}
 ```
 
 Replace placeholders with actual values. Do NOT use placeholders.

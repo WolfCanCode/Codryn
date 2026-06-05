@@ -5,16 +5,16 @@
 ### macOS / Linux
 
 ```bash
-bash <(cd /tmp && git archive --remote=ssh://git@code.swisscom.com:2222/tommy.le/codryn.git HEAD install.sh | tar -xO)
+curl -fsSL https://raw.githubusercontent.com/WolfCanCode/Codryn/main/install.sh | sh
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$a="$env:TEMP\codryn-a.tar"; git archive --remote=ssh://git@code.swisscom.com:2222/tommy.le/codryn.git HEAD install.ps1 > $a; tar -xf $a -C $env:TEMP; Remove-Item $a; & "$env:TEMP\install.ps1"; Remove-Item "$env:TEMP\install.ps1" -ErrorAction SilentlyContinue
+irm https://raw.githubusercontent.com/WolfCanCode/Codryn/main/install.ps1 | iex
 ```
 
-> **Note:** The archive must be saved to a file before extracting — Windows `tar.exe` cannot read piped streams reliably.
+> **Note:** On Windows, save the installer script to a file before running if your shell cannot execute piped scripts reliably.
 
 ### What the installer does
 
@@ -30,7 +30,7 @@ $a="$env:TEMP\codryn-a.tar"; git archive --remote=ssh://git@code.swisscom.com:22
 ## Build from Source
 
 ```bash
-git clone <repo-url> && cd codryn-rs
+git clone https://github.com/WolfCanCode/Codryn.git && cd Codryn
 cargo build --release
 ```
 
@@ -38,10 +38,10 @@ cargo build --release
 
 | Step | What happens |
 |:-----|:-------------|
-| 1 | Runs `npm install` in `graph-ui/` (if `node_modules` missing) |
-| 2 | Runs `npm run build` to compile the Angular dashboard |
+| 1 | Runs `npm install` in `ui/` (if dependencies are missing) |
+| 2 | Runs `npm run build` to compile the React dashboard |
 | 3 | Embeds the built UI assets into the binary via `rust-embed` |
-| 4 | Compiles the Rust binary with 14+ tree-sitter grammars |
+| 4 | Compiles the Rust binary with 30+ tree-sitter grammars |
 
 The final binary is at `./target/release/codryn`. Node.js is **not required at runtime**.
 
@@ -63,12 +63,12 @@ codryn --version
 
 ---
 
-## Configure Your Agents
+## Configure Your Agent
 
 ```bash
-codryn install          # interactive: choose scope, IDEs, steering intensity
+codryn install          # interactive: choose scope, detected agents, steering intensity
 codryn install --dry-run       # preview changes without writing
-codryn install --non-interactive  # use defaults (workspace-only, all detected IDEs)
+codryn install --non-interactive  # use defaults (workspace-only, all detected agents)
 codryn install --mode cli      # CLI-first: no MCP config, just the binary + lite steering
 codryn uninstall        # remove all MCP configuration
 codryn uninstall --keep-data   # remove config but keep the graph database
@@ -77,10 +77,10 @@ codryn uninstall --workspace-only  # remove from current workspace only
 
 ### Workspace Activation (Per-Project)
 
-Instead of global steering that loads on every session, activate codryn per workspace:
+Activate codryn per workspace instead of loading global steering on every session:
 
 ```bash
-codryn activate              # write steering to .kiro/steering/ in current workspace (full intensity)
+codryn activate              # write workspace steering (full intensity)
 codryn activate --global     # global steering (lite intensity by default)
 codryn deactivate            # remove workspace steering
 codryn deactivate --global   # remove global steering
@@ -97,29 +97,23 @@ codryn steering --mode full   # switch workspace steering to full
 
 ### Selective MCP Configuration
 
-Manage mcp.json entries without re-running full install:
+Manage MCP config entries without re-running full install:
 
 ```bash
-codryn mcp-config show                    # show all configured entries across IDEs
+codryn mcp-config show                    # show all configured entries
 codryn mcp-config add <path-to-mcp.json>  # add codryn entry (with confirmation)
 codryn mcp-config remove <path-to-mcp.json>  # remove codryn entry (with confirmation)
 ```
 
 ### What gets configured
 
-| Agent | Config path | Instructions path |
-|:------|:------------|:------------------|
-| Claude Code | `~/.claude/mcp_servers.json` | `~/.claude/CLAUDE.md` |
-| VS Code | `~/.vscode/mcp.json` | `~/.vscode/AGENTS.md` |
-| GitHub Copilot | `~/.vscode/mcp.json` | `~/.github/copilot-instructions.md` + `~/.copilot/skills/` |
-| Cursor | `~/.cursor/mcp.json` | `~/.cursor/AGENTS.md` + `~/.cursor/skills/` |
-| Zed | `~/Library/Application Support/Zed/settings.json` | — |
-| Codex CLI | `~/.codex/config.toml` | `~/.codex/AGENTS.md` + `~/.codex/skills/` |
-| Gemini CLI | `~/.gemini/mcp.json` | `~/.gemini/GEMINI.md` + `~/.gemini/skills/` |
-| Kiro | `~/.kiro/settings/mcp.json` | `~/.kiro/steering/codebase-memory.md` + `~/.kiro/skills/` |
-| Windsurf | `~/.codeium/windsurf/mcp.json` | `~/.codeium/windsurf/skills/` |
+`codryn install` detects MCP-compatible coding agents on your machine and writes:
 
-All agents also receive a `SKILL.md` file following the [Agent Skills standard](https://agentskills.io/) for progressive-disclosure steering.
+- MCP server entries pointing at the `codryn` binary
+- Steering instructions that teach the agent to use graph tools first
+- Optional skill files for progressive disclosure
+
+Run `codryn status` or `codryn mcp-config show` to see which agents were configured and where files were written.
 
 Restart your coding agent after running `codryn install`. Then say **"Index this project"** — done.
 
@@ -131,16 +125,10 @@ Restart your coding agent after running `codryn install`. Then say **"Index this
 codryn update
 ```
 
-Or one-line update if `codryn update` isn't available yet:
+Or reinstall from the latest release:
 
-**macOS / Linux:**
 ```bash
-bash <(cd /tmp && git archive --remote=ssh://git@code.swisscom.com:2222/tommy.le/codryn.git HEAD install.sh | tar -xO) update
-```
-
-**Windows:**
-```powershell
-$a="$env:TEMP\codryn-a.tar"; git archive --remote=ssh://git@code.swisscom.com:2222/tommy.le/codryn.git HEAD install.ps1 > $a; tar -xf $a -C $env:TEMP; Remove-Item $a; & "$env:TEMP\install.ps1" update; Remove-Item "$env:TEMP\install.ps1" -ErrorAction SilentlyContinue
+curl -fsSL https://raw.githubusercontent.com/WolfCanCode/Codryn/main/install.sh | sh
 ```
 
 ---
@@ -167,21 +155,21 @@ codryn --ui --port=8080  # custom port
 | `codryn` | MCP server mode (agents start this automatically) |
 | `codryn --ui` | MCP server + web dashboard |
 | `codryn --ui --port=N` | Custom dashboard port |
-| `codryn install` | Interactive install: choose scope, IDEs, steering intensity |
+| `codryn install` | Interactive install: choose scope, agents, steering intensity |
 | `codryn install --dry-run` | Preview configuration changes |
-| `codryn install --non-interactive` | Use defaults (workspace-only, all detected IDEs) |
+| `codryn install --non-interactive` | Use defaults (workspace-only, all detected agents) |
 | `codryn install --mode cli` | CLI-first mode: no MCP config, just binary + lite steering |
 | `codryn uninstall` | Remove all agent configurations |
 | `codryn uninstall --keep-data` | Remove config but preserve graph database |
 | `codryn uninstall --workspace-only` | Remove from current workspace only |
-| `codryn activate` | Write steering to workspace `.kiro/steering/` |
-| `codryn activate --global` | Write steering globally (lite intensity) |
+| `codryn activate` | Write workspace steering (full intensity) |
+| `codryn activate --global` | Write global steering (lite intensity) |
 | `codryn deactivate` | Remove workspace steering |
 | `codryn deactivate --global` | Remove global steering |
 | `codryn steering --mode lite\|full` | Switch steering intensity |
-| `codryn mcp-config show` | Show all configured MCP entries across IDEs |
-| `codryn mcp-config add <path>` | Add codryn entry to a specific mcp.json |
-| `codryn mcp-config remove <path>` | Remove codryn entry from a specific mcp.json |
+| `codryn mcp-config show` | Show all configured MCP entries |
+| `codryn mcp-config add <path>` | Add codryn entry to a specific MCP config file |
+| `codryn mcp-config remove <path>` | Remove codryn entry from a specific MCP config file |
 | `codryn status` | Check agent installation status |
 | `codryn update` | Self-update to latest version |
 | `codryn query <tool> --<key> <val>` | Run any MCP tool from the CLI (one-shot) |
@@ -208,9 +196,10 @@ codryn --ui --port=8080  # custom port
 | Variable | Description |
 |:---------|:------------|
 | `RUST_LOG` | Log level (e.g. `codryn=debug`, `codryn=trace`) |
-| `CBM_LOG_LEVEL` | Override log level from config |
-| `CBM_LOG_FORMAT` | Log format: `compact` (default) or `json` |
-| `CBM_MAX_MEMORY_MB` | Memory pressure threshold (default: 512) |
+| `CODRYN_LOG_LEVEL` | Override log level from config |
+| `CODRYN_LOG_FORMAT` | Log format: `compact` (default) or `json` (legacy alias: `CBM_LOG_FORMAT`) |
+| `CODRYN_MAX_MEMORY_MB` | Memory pressure threshold (default: 512; legacy alias: `CBM_MAX_MEMORY_MB`) |
+| `CODRYN_STORE_PATH` | Override graph database location |
 
 ### Data Storage
 
@@ -232,4 +221,4 @@ max_calls = 100
 max_expensive = 10
 ```
 
-Environment variables override config values: `CBM_LOG_LEVEL`, `CBM_LOG_FORMAT`, `CBM_MAX_MEMORY_MB`.
+Environment variables override config values. Legacy `CBM_*` names are still accepted for several settings.

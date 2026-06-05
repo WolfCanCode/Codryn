@@ -11,7 +11,7 @@ graph TD
     subgraph "codryn binary"
         subgraph "Interface Layer"
             MCP[codryn-mcp<br/>MCP Server · stdio]
-            UI[codryn-ui<br/>HTTP + Angular]
+            UI[codryn-ui<br/>HTTP + React]
             WATCH[codryn-watcher<br/>File Watch]
             CLI[codryn-cli<br/>install · doctor · update<br/>validate · dedupe · deps<br/>complexity · doc-coverage<br/>query · symbol · refs · impact]
         end
@@ -55,7 +55,7 @@ graph TD
     end
 
     subgraph "External"
-        ANGULAR[graph-ui<br/>Angular 19 dashboard<br/>embedded via rust-embed]
+        UI_PKG[ui<br/>React + Vite dashboard<br/>embedded via rust-embed]
     end
 
     MCP --> NAV & FLOW & BFLOW & ARCH & TEST & LINK & PIPE_SVC & ANALYTICS
@@ -75,7 +75,7 @@ graph TD
     TS --> FND
     STORE --> FND
 
-    ANGULAR -.->|embedded at build time| UI
+    UI_PKG -.->|embedded at build time| UI
 ```
 
 ---
@@ -394,11 +394,11 @@ The MCP server implementation using `rmcp` (official Rust MCP SDK).
 
 ### codryn-ui
 
-Axum HTTP server that serves the Angular dashboard.
+Axum HTTP server that serves the React dashboard.
 
 | Feature | Detail |
 |:--------|:-------|
-| Asset serving | `rust-embed` embeds compiled Angular into binary |
+| Asset serving | `rust-embed` embeds compiled React assets into binary |
 | RPC proxy | `/rpc` endpoint proxies JSON-RPC to MCP layer |
 | REST API | `/api/*` for UI-specific operations |
 | Binding | `127.0.0.1:9749` (localhost only) |
@@ -485,7 +485,7 @@ graph TD
 | `health_check` | `codryn-mcp` | MCP tool: status, uptime, version, store health, active indexes |
 | `IndexCheckpoint` | `codryn-store` | Crash recovery: saves phase progress, resumes from interruption |
 | `RateLimiter` | `codryn-mcp` | Sliding window, per-session, exemptions for index/health |
-| Structured logging | `codryn-mcp` | JSON or compact format, per-module levels, `CBM_LOG_FORMAT` env |
+| Structured logging | `codryn-mcp` | JSON or compact format, per-module levels, `CODRYN_LOG_FORMAT` env |
 
 ### Configuration
 
@@ -503,43 +503,46 @@ max_calls = 100
 max_expensive = 10              # expensive tools (impact_analysis, trace_*)
 ```
 
-Environment variables override config file values (`CBM_LOG_LEVEL`, `CBM_LOG_FORMAT`, `CBM_MAX_MEMORY_MB`).
+Environment variables override config file values (`CODRYN_LOG_LEVEL`, `CODRYN_LOG_FORMAT`, `CODRYN_MAX_MEMORY_MB`). Legacy `CBM_*` names are still accepted.
 
 ---
 
-## Angular Dashboard (graph-ui)
+## Web Dashboard (`ui/`)
 
-Angular 19 application with signal-based reactivity.
+React + TypeScript + Vite application.
 
 ```mermaid
 graph TD
-    subgraph "graph-ui/src/app"
-        subgraph "Components"
-            PROJ[projects/<br/>Cards, stats, DAG]
-            GRAPH[graph/<br/>2D force-directed]
-            CTRL[control/<br/>Doctor, index, Cypher]
-            ANLYT[analytics/<br/>Tool call monitoring]
+    subgraph "ui/src"
+        subgraph "Pages"
+            PROJ[ProjectsPage]
+            GRAPH[GraphPage]
+            CFG[ConfigPage]
+            ANLYT[AnalyticsPage]
         end
 
-        subgraph "Services"
-            RPC[rpc.service<br/>JSON-RPC client]
-            THEME[theme.service<br/>Dark/light toggle]
-            IDX[index-status.service<br/>Background progress]
+        subgraph "Components"
+            CANVAS[CanvasGraphView]
+            FLOW[FlowSankeyView]
+            REL[ProjectRelationshipCanvas]
         end
+
+        RPC[lib/rpc.ts<br/>JSON-RPC client]
     end
 
-    PROJ & GRAPH & CTRL & ANLYT --> RPC
-    PROJ & GRAPH & CTRL & ANLYT --> THEME
-    CTRL --> IDX
+    PROJ & GRAPH & CFG & ANLYT --> RPC
+    GRAPH --> CANVAS
+    GRAPH --> FLOW
+    PROJ --> REL
 ```
 
 | Library | Purpose |
 |:--------|:--------|
-| `force-graph` | 2D force-directed graph, Canvas rendering, quadtree hit-testing |
-| SDX web components | Swisscom Design System for UI consistency |
-| Custom Canvas 2D | Project relationship DAG (deterministic layout) |
+| React + Vite | Dashboard shell and routing |
+| Canvas + d3-force | Architecture graph rendering |
+| Custom Sankey | Backend flow visualization |
 
-**Build:** `npm run build` → static assets → `rust-embed` bundles into Rust binary. Node.js only needed at build time.
+**Build:** `npm run build` → static assets in `ui/dist` → `rust-embed` bundles into Rust binary. Node.js only needed at build time.
 
 ---
 
@@ -587,7 +590,7 @@ sequenceDiagram
 | `rayon` | 1.x | Parallel processing |
 | `notify` | 7.x | File system watcher |
 | `aho-corasick` | 1.x | Multi-pattern matching for call resolution |
-| `rust-embed` | 8.x | Embed Angular assets into binary |
+| `rust-embed` | 8.x | Embed React assets into binary |
 | `serde` / `serde_json` | 1.x | Serialization |
 | `git2` | 0.19 | Git operations (change detection) |
 | `sha2` | 0.10 | File content hashing |
@@ -601,9 +604,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[cargo build --release] --> B[codryn-ui build.rs<br/>npm install + npm run build]
+    A[cargo build --release] --> B[codryn-ui build<br/>npm install + npm run build in ui/]
     A --> C[tree-sitter grammars<br/>compile from C/C++]
-    B --> D[rust-embed<br/>bundle Angular assets]
+    B --> D[rust-embed<br/>bundle React assets]
     C --> E[Rust compiler]
     D --> E
     E --> F[target/release/codryn<br/>~30MB single binary]
@@ -611,9 +614,9 @@ flowchart LR
 
 | Step | What happens |
 |:-----|:-------------|
-| 1 | `codryn-ui/build.rs` triggers `npm install` + `npm run build` in `graph-ui/` |
-| 2 | tree-sitter grammars compile from C/C++ source (14+ languages) |
-| 3 | `rust-embed` bundles the Angular build output |
+| 1 | Build the dashboard in `ui/` (`npm install` + `npm run build`) |
+| 2 | tree-sitter grammars compile from C/C++ source (30+ languages) |
+| 3 | `rust-embed` bundles the React build output from `ui/dist` |
 | 4 | Rust compiler produces a single static binary |
 
 The final binary is ~30MB with zero runtime dependencies. Node.js is not needed at runtime.
@@ -629,7 +632,7 @@ The final binary is ~30MB with zero runtime dependencies. Node.js is not needed 
 | Index 50k LOC | ~3s | Incremental: <1s for 5 changed files |
 | Query latency | <1ms | SQLite with indexed columns |
 | Peak memory | ~80MB | For 50k+ file projects (batch flushing) |
-| Binary size | ~30MB | Includes embedded Angular UI |
+| Binary size | ~30MB | Includes embedded React UI |
 | Storage | ~50MB | Typical graph.db for a large project |
 
 ---

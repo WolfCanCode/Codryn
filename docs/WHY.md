@@ -2,7 +2,7 @@
 
 ## An Honest Perspective From the Agent Side
 
-I'm an AI coding agent. I use this tool every day. Let me be direct about what it changes.
+AI coding agents work better with persistent structural memory. Here is what codryn changes in practice.
 
 **Without codryn**, I'm blind. Every session starts from zero. You ask me "what calls `processPayment`?" and I have to read file after file, guessing which ones might be relevant. I miss things. I waste your context window. I waste your time. I give you incomplete answers and neither of us knows what I missed.
 
@@ -14,7 +14,7 @@ This isn't marketing. This is the difference between working blind and working w
 
 ## The Hard Truth About AI Agents Today
 
-Every AI coding agent — Claude, GPT, Cursor, Copilot, Gemini, all of us — has the same fundamental limitation:
+Every AI coding agent has the same fundamental limitation:
 
 **We are stateless. We forget everything between sessions.**
 
@@ -48,26 +48,7 @@ This is not a minor inconvenience. This is a fundamental architectural failure t
 | **Large codebases (50k+ LOC)** | Effectively unusable for structural questions |
 | **Multi-repo systems** | Impossible — can't see across project boundaries |
 
-### With the Original C codryn
-
-| Aspect | Reality |
-|:-------|:--------|
-| **Structural queries** | Graph-based, complete answers |
-| **Speed** | Extremely fast — Linux kernel (28M LOC) in 3 minutes, sub-ms queries |
-| **Token cost** | Low (~3,400 tokens for 5 structural queries) |
-| **Accuracy** | High for indexed symbols |
-| **Installation** | Single binary download (curl \| bash), zero deps |
-| **Memory usage** | RAM-first pipeline, memory released after indexing |
-| **Safety** | C — manual memory management (risk of UB, buffer overflows) |
-| **Distribution** | Pre-built binaries for macOS/Linux/Windows |
-| **Dashboard** | 3D graph visualization at localhost:9749 |
-| **Framework support** | Basic extraction, infrastructure-as-code (K8s, Docker, Kustomize) |
-| **Incremental indexing** | Supported |
-| **Language grammars** | 155 vendored tree-sitter grammars |
-| **MCP tools** | 14 tools |
-| **Agents** | 11 agents auto-configured |
-
-### With This Rust Rewrite (codryn-rs)
+### With codryn
 
 | Aspect | Reality |
 |:-------|:--------|
@@ -178,33 +159,7 @@ A graph query returns exactly what's needed in 100–500 tokens. Every time. Ins
 
 ---
 
-## Why This Rust Rewrite Over the Original?
-
-The original C implementation is excellent. It's blazing fast (indexes the Linux kernel in 3 minutes), supports 155 languages, and ships as a single binary. It proved the concept and set the bar. Here's an honest comparison:
-
-| Concern | C Original | Rust Rewrite | Who wins |
-|:--------|:-----------|:-------------|:---------|
-| **Raw indexing speed** | Faster (RAM-first, LZ4, fused Aho-Corasick) | Fast (rayon parallel, batch SQL) | 🏆 C |
-| **Language coverage** | 155 grammars | 64 languages (14 deep walkers) | 🏆 C |
-| **Memory safety** | Manual (C — risk of UB, leaks) | Guaranteed at compile time | 🏆 Rust |
-| **MCP tools** | 14 | 46 | 🏆 Rust |
-| **Framework depth** | Basic + infra-as-code | Deep AST (Spring, Angular, Vue, Go, Ginkgo, FastAPI) | 🏆 Rust |
-| **Agent-first tools** | None | what_if, ask_graph, plan_refactoring, detect_patterns, review_changes | 🏆 Rust |
-| **Dashboard** | 3D graph visualization | 2D graph + flow tracing + analytics + Cypher console + agent tools | 🏆 Rust |
-| **Cross-project** | HTTP linking | Auto-linking + bidirectional search + MAPS_TO | 🏆 Rust |
-| **Confidence scoring** | None | Every edge carries provenance (0.0–1.0) | 🏆 Rust |
-| **Error tolerance** | Strict parsing | Accepts partial parse trees | 🏆 Rust |
-| **Distribution** | Single binary (pre-built) | Single binary (pre-built) | Tie |
-| **Agent support** | 11 agents | 10 agents | 🏆 C |
-| **Maturity** | Battle-tested, research-backed | Newer, actively developed | 🏆 C |
-
-**Honest take:** The C original wins on raw speed and language coverage. This Rust rewrite wins on tool richness (46 vs 14), agent-first analysis tools, framework-aware extraction, confidence scoring, memory safety, and developer experience (dashboard, Cypher console, flow tracing). Choose based on what matters more to you.
-
-The Rust version isn't just faster — it's more practical for daily use. No dependency hell, no version conflicts, no "npm audit" warnings. Download one file, run it, done.
-
----
-
-## The Real Cost of Not Using This
+## The Real Cost of Not Using codryn
 
 Let me quantify what you lose without a knowledge graph:
 
@@ -238,7 +193,7 @@ Let me quantify what you lose without a knowledge graph:
 
 ## Who Should Use This
 
-- **You use AI coding agents** (Claude Code, Cursor, Copilot, Codex, Gemini, Kiro, Zed)
+- **You use AI coding agents** with MCP support
 - **Your codebase is non-trivial** (more than a few files)
 - **You ask structural questions** ("what calls X?", "what depends on Y?", "how does this flow?")
 - **You work across repos** (frontend + backend, microservices)
@@ -261,7 +216,7 @@ With it, I have a complete map. I answer structural questions instantly, complet
 **One command to install. One command to index. Then your agent just knows — forever.**
 
 ```bash
-bash <(cd /tmp && git archive --remote=ssh://git@code.swisscom.com:2222/tommy.le/codryn.git HEAD install.sh | tar -xO)
+curl -fsSL https://raw.githubusercontent.com/WolfCanCode/Codryn/main/install.sh | sh
 codryn install
 # Done. Say "Index this project" to your agent.
 ```
@@ -269,7 +224,6 @@ codryn install
 ---
 
 <p align="center"><em>
-This document was written by Claude Opus 4.6 — an AI agent that uses codryn daily.<br/>
-Every claim above reflects real experience working with and without this tool across real codebases.<br/>
-No marketing. Just an honest account from the other side of the chat window.
+Every claim above reflects real experience working with and without codryn across real codebases.<br/>
+No marketing. Just an honest account of what persistent structural memory changes for AI-assisted development.
 </em></p>

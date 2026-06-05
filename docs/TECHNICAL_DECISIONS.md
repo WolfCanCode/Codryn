@@ -6,15 +6,15 @@ Design rationale for the key technology choices in `codryn`.
 
 ## Why Rust?
 
-| Concern | Node.js (original) | Rust (this rewrite) |
-|:--------|:--------------------|:--------------------|
+| Concern | Node.js baseline | Rust (`codryn`) |
+|:--------|:-----------------|:----------------|
 | Distribution | Requires runtime + node_modules | Single static binary |
 | Startup time | 200–500ms cold start | <10ms |
 | Memory (50k files) | 500MB+ (GC overhead) | ~80MB (batch flushing) |
 | Concurrency | Single-threaded + worker threads | Safe parallelism via ownership |
 | UI embedding | Separate process or bundler | `rust-embed` compiles UI into binary |
 
-The original [codryn](https://github.com/DeusData/codryn) was TypeScript/Node.js. MCP servers are spawned on demand by agents — fast startup and low memory matter.
+MCP servers are spawned on demand by agents — fast startup and low memory matter.
 
 ---
 
@@ -55,7 +55,7 @@ We considered embedded graph databases (sled, rocksdb) but SQLite's maturity, to
 
 | Property | Benefit |
 |:---------|:--------|
-| Agent-agnostic | Works with Claude Code, Cursor, VS Code, Zed, Codex, Gemini, Kiro |
+| Agent-agnostic | Works with any MCP-compatible coding agent |
 | No plugin per IDE | One binary serves all agents |
 | Tool discovery | Agents auto-discover tools and schemas |
 | Stdio transport | Simple, reliable, no port management |
@@ -64,18 +64,18 @@ We considered embedded graph databases (sled, rocksdb) but SQLite's maturity, to
 
 ---
 
-## Why Angular for the Dashboard?
+## Why React for the Dashboard?
 
 | Reason | Detail |
 |:-------|:-------|
-| SDX design system | [Swisscom SDX](https://sdx.swisscom.com/) web components integrate naturally with Angular's `CUSTOM_ELEMENTS_SCHEMA` |
-| Signals | Angular 19's signal-based reactivity keeps UI responsive without complex state management |
-| Build-time embedding | Angular build output is static files that `rust-embed` bundles into the binary |
-| Canvas rendering | `force-graph` library for optimized 2D graph with quadtree hit-testing, 75k+ elements |
+| Ecosystem | React + Vite + TypeScript matches modern frontend tooling |
+| Canvas rendering | Custom Canvas + `d3-force` for large architecture graphs |
+| Flow views | Sankey and lane layouts for backend request tracing |
+| Build-time embedding | Static build output is bundled into the binary via `rust-embed` |
 
-**Graph visualization:** Uses `force-graph` (vasturiano) — optimized Canvas-based 2D force-directed graph with built-in quadtree hit-testing, viewport culling, node labels, directional arrows, and drag. Replaced hand-rolled d3-force + Canvas 2D code.
+**Graph visualization:** Canvas-based force-directed layout with DPR-correct rendering, minimap, and incremental layout for large graphs.
 
-**Relationship DAG:** Custom Canvas 2D renderer with BFS layered layout, animated bezier edges, 4-sided connection anchors, and drag-to-link. Kept lightweight (no force-graph) since project count is small and layout is deterministic.
+**Relationship DAG:** Custom Canvas 2D renderer with layered layout, animated bezier edges, and drag-to-link for linked projects.
 
 ---
 
@@ -107,9 +107,9 @@ The tradeoff: deep traversals (5+ hops) are slower than a native graph DB. In pr
 
 ```mermaid
 flowchart LR
-    A[cargo build --release] --> B[npm install + build<br/>in graph-ui/]
+    A[cargo build --release] --> B[npm install + build<br/>in ui/]
     A --> C[Compile tree-sitter<br/>grammars]
-    B --> D[rust-embed bundles<br/>Angular assets]
+    B --> D[rust-embed bundles<br/>React assets]
     C --> E[Single binary<br/>~30MB]
     D --> E
 ```

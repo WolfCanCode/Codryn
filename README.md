@@ -13,13 +13,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/languages-64-blue" alt="64 languages" />
   <img src="https://img.shields.io/badge/MCP_tools-46-green" alt="46 MCP tools" />
-  <img src="https://img.shields.io/badge/agents-10+-orange" alt="10+ agents" />
+  <img src="https://img.shields.io/badge/MCP-compatible-yes-orange" alt="MCP compatible" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT license" />
 </p>
 
 `codryn` is an open-source Rust knowledge graph and MCP server for AI coding agents, built to make large codebases easier to explore, trace, and understand.
-
-> Based on the paper: [Codebase-memory-mcp: A Persistent Knowledge Graph for AI Coding Agents](https://arxiv.org/abs/2603.27277)
 
 If this project is useful, give it a star. It helps more people discover the project and support continued open-source work.
 
@@ -169,5 +167,4 @@ MIT
 
 ## References
 
-- [Codebase-memory-mcp paper](https://arxiv.org/abs/2603.27277)
-- [Original upstream inspiration](https://github.com/DeusData/codebase-memory-mcp)
+- [Research paper: persistent knowledge graphs for AI coding agents](https://arxiv.org/abs/2603.27277)

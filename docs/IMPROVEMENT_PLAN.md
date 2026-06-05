@@ -1,10 +1,10 @@
 # Improvement Plan
 
-Audit of the full codebase — Rust backend (11 crates) and Angular frontend — produced via the codebase memory MCP knowledge graph (457 nodes, 775 edges) and deep code review. Organised into nine tracks: **Faster**, **Better**, **Looks Good**, **Origin Parity**, **Agent-First**, **Reliability & Operations**, **Developer Experience & Distribution**, **Data Quality & Intelligence**, and **Installation & Activation UX**.
+Audit of the full codryn codebase — Rust backend and React frontend — produced via the codryn knowledge graph and deep code review. Organised into nine tracks: **Faster**, **Better**, **Looks Good**, **Core Parity**, **Agent-First**, **Reliability & Operations**, **Developer Experience & Distribution**, **Data Quality & Intelligence**, and **Installation & Activation UX**.
 
-Track 4 was added after a cross-project comparison with the origin C implementation (`codryn`, 1,686 files, 100+ tree-sitter grammars). MCP tool surface is now at **46 tools** (was 30), pipeline passes expanded, and language coverage includes Tier 1–3 walkers.
+Track 4 expanded MCP tool surface to **46 tools**, pipeline passes, and language coverage including Tier 1–3 walkers.
 
-Track 5 goes beyond the origin — features designed specifically to reduce agent tool calls, context window waste, and wrong-turn decisions. All milestones complete as of v0.4.3, including semantic search, OpenAPI generation, API surface diff, graph diff, dependency freshness, and staleness scoring.
+Track 5 adds agent-first features designed specifically to reduce agent tool calls, context window waste, and wrong-turn decisions. All milestones complete as of v0.4.3, including semantic search, OpenAPI generation, API surface diff, graph diff, dependency freshness, and staleness scoring.
 
 > **Status as of v0.4.3:** Tracks 1–6, 8, and 9 are fully complete (Track 9 has 2 remaining items: `index_repository` auto-write trigger and per-workspace `.codryn.toml` override). Track 7 (Developer Experience & Distribution) remains planned.
 
@@ -91,7 +91,7 @@ Replaced hand-rolled d3-force + Canvas 2D rendering with `force-graph` (vasturia
 
 ### 1.11 Reduce Flush Round-Trips (25 → 3–4)
 
-`Pipeline::run()` calls `buf.flush(&store)` **25 times** during a single index. Each flush opens a transaction, inserts nodes, resolves QNs (including suffix-match fallback queries), inserts edges, and commits. On the origin project (23K nodes, 180K edges), this is the dominant bottleneck — each flush does thousands of individual SQL statements.
+`Pipeline::run()` calls `buf.flush(&store)` **25 times** during a single index. Each flush opens a transaction, inserts nodes, resolves QNs (including suffix-match fallback queries), inserts edges, and commits. On the reference project (23K nodes, 180K edges), this is the dominant bottleneck — each flush does thousands of individual SQL statements.
 
 - [x] Consolidate passes into 3–4 flush phases: (1) structure + definitions, (2) all edge passes, (3) infra/pipeline passes, (4) enrichment
 - [x] Accumulate edges across `pass_calls`, `pass_imports`, `pass_rest_contracts`, `pass_spring_routes`, `pass_go_routes`, `pass_angular`, `pass_vue` into a single buffer before flushing
@@ -121,12 +121,12 @@ The pipeline already computes `changed_files` but then runs **every pass on ALL 
 
 ### 1.14 Lazy Type Registry Population
 
-Type assignment extraction (`extract_type_assigns` + `analyze_scope`) runs on **every file** serially, even in Fast mode. For the origin project with 1,686 files, this is a significant sequential bottleneck.
+Type assignment extraction (`extract_type_assigns` + `analyze_scope`) runs on **every file** serially, even in Fast mode. For the reference project with 1,686 files, this is a significant sequential bottleneck.
 
 - [x] Parallelize type extraction with rayon (it's currently a serial `for f in &files` loop)
 - [x] In Fast mode, skip type extraction entirely (it only benefits `pass_calls` disambiguation)
 - [ ] Cache type registry results per-file and only re-extract for changed files
-- [ ] Benchmark: measure type extraction time in isolation on the origin project
+- [ ] Benchmark: measure type extraction time in isolation on the reference project
 
 ### 1.15 SQLite Write Optimizations
 
@@ -138,11 +138,11 @@ The current SQLite configuration uses WAL mode and 64MB cache, but several addit
 - [x] Disable `PRAGMA foreign_keys` during bulk indexing (re-enable after) — saves constraint checks per row
 - [ ] Consider `PRAGMA page_size = 8192` (vs default 4096) for better I/O alignment on modern SSDs
 - [x] Add `PRAGMA wal_autocheckpoint = 10000` during indexing to reduce checkpoint frequency
-- [ ] Benchmark: measure total index time before/after on the origin project
+- [ ] Benchmark: measure total index time before/after on the reference project
 
 ### 1.16 Java/Kotlin/Go Serial Extraction Bottleneck
 
-Java, Kotlin, and Go files are extracted **serially** because their extractors "mutate buf/reg directly." On the origin project (which is primarily C but has Go tooling), this is less impactful, but on Spring Boot or Go monorepos it's a major bottleneck.
+Java, Kotlin, and Go files are extracted **serially** because their extractors "mutate buf/reg directly." On the reference project (which is primarily C but has Go tooling), this is less impactful, but on Spring Boot or Go monorepos it's a major bottleneck.
 
 - [x] Refactor Java/Kotlin/Go extractors to use the same `ExtractionResult` pattern as other languages
 - [x] This enables parallel extraction via `extract_file_parallel` for all languages
@@ -376,13 +376,13 @@ Current search removes non-matching nodes entirely, losing graph context.
 
 ---
 
-## Track 4 — Origin Parity (Gaps vs C codryn)
+## Track 4 — Core Parity (Gaps vs C codryn)
 
-Cross-project comparison between this Rust port and the origin C implementation (linked as `codryn`). The origin has 1,686 files and 100+ tree-sitter grammars. MCP tool surface is now at **46 tools** (was 30), pipeline passes expanded, and language coverage includes Tier 1 deep walkers (Java, Kotlin, Dart, Lua, Haskell) plus Tier 2 & 3 regex walkers. All origin parity items are now complete as of v0.4.3.
+Cross-project audit of the codryn codebase. MCP tool surface is at **46 tools**, pipeline passes expanded, and language coverage includes Tier 1 deep walkers (Java, Kotlin, Dart, Lua, Haskell) plus Tier 2 & 3 regex walkers. All parity items are complete as of v0.4.3.
 
 ### 4.1 Tree-sitter Walker Expansion
 
-The origin ships **100+ tree-sitter grammars** with full AST extraction. The Rust port has **14 walkers** (Bash, C, C++, C#, Elixir, JS, PHP, Python, Ruby, Rust, Scala, Swift, TS/TSX) plus dedicated adapters for Java, Kotlin, and Go. All other languages fall back to regex extraction, producing shallower graphs.
+The baseline ships **100+ tree-sitter grammars** with full AST extraction. The Rust port has **14 walkers** (Bash, C, C++, C#, Elixir, JS, PHP, Python, Ruby, Rust, Scala, Swift, TS/TSX) plus dedicated adapters for Java, Kotlin, and Go. All other languages fall back to regex extraction, producing shallower graphs.
 
 **Tier 1 — High-demand languages (most requested by agents):**
 
@@ -405,7 +405,7 @@ The origin ships **100+ tree-sitter grammars** with full AST extraction. The Rus
 - [x] Erlang walker (regex-fallback)
 - [x] F# walker (regex-fallback)
 
-**Tier 3 — Long tail (origin has grammars, we detect but don't extract):**
+**Tier 3 — Long tail (baseline had grammars; codryn detects but does not extract yet):**
 
 - [x] HCL/Terraform (regex-fallback)
 - [x] Protobuf (regex-fallback)
@@ -415,7 +415,7 @@ The origin ships **100+ tree-sitter grammars** with full AST extraction. The Rus
 
 ### 4.2 Incremental Indexing
 
-The origin has `pipeline_incremental.c` — re-indexes only changed files by comparing file hashes against the stored index. The Rust port now supports incremental indexing.
+The baseline has `pipeline_incremental.c` — re-indexes only changed files by comparing file hashes against the stored index. The Rust port now supports incremental indexing.
 
 - [x] Store per-file content hash in the graph during indexing
 - [x] On re-index, compute hashes for all discovered files and diff against stored hashes
@@ -425,7 +425,7 @@ The origin has `pipeline_incremental.c` — re-indexes only changed files by com
 
 ### 4.3 Git History Enrichment (`pass_githistory`)
 
-The origin runs `git log` to enrich nodes with commit frequency, last-modified dates, and contributor counts. This enables hotspot detection (frequently changed files/functions).
+The baseline runs `git log` to enrich nodes with commit frequency, last-modified dates, and contributor counts. This enables hotspot detection (frequently changed files/functions).
 
 - [x] Run `git log --format` to collect per-file: commit count, last commit date, unique author count
 - [x] Store as node properties: `git_commits`, `git_last_modified`, `git_authors`
@@ -434,7 +434,7 @@ The origin runs `git log` to enrich nodes with commit frequency, last-modified d
 
 ### 4.4 Usage/Reference Pass (`pass_usages`)
 
-The origin has a dedicated `pass_usages` that creates USES edges for non-call references (type annotations, variable declarations, constant references). The Rust port only creates USES edges as a fallback in `pass_calls` when a match isn't a function call.
+The baseline has a dedicated `pass_usages` that creates USES edges for non-call references (type annotations, variable declarations, constant references). The Rust port only creates USES edges as a fallback in `pass_calls` when a match isn't a function call.
 
 - [x] Dedicated pass that scans for type annotations, variable type references, and constant usage
 - [x] Create USES edges from the referencing symbol to the referenced type/constant
@@ -442,7 +442,7 @@ The origin has a dedicated `pass_usages` that creates USES edges for non-call re
 
 ### 4.5 Config Linking (`pass_configlink`)
 
-The origin links configuration files (`.env`, `application.yml`, `config.json`, etc.) to the code that reads them via environment variable names or config keys.
+The baseline links configuration files (`.env`, `application.yml`, `config.json`, etc.) to the code that reads them via environment variable names or config keys.
 
 - [x] Detect config files by name/extension patterns
 - [x] Extract config keys from YAML, JSON, TOML, .env, .properties files
@@ -451,7 +451,7 @@ The origin links configuration files (`.env`, `application.yml`, `config.json`, 
 
 ### 4.6 Kubernetes Manifest Pass (`pass_k8s`)
 
-The origin parses Kubernetes manifests (Deployments, Services, ConfigMaps, Ingress) and links them to the application code they deploy.
+The baseline parses Kubernetes manifests (Deployments, Services, ConfigMaps, Ingress) and links them to the application code they deploy.
 
 - [x] Parse K8s YAML manifests for resource metadata (name, kind, namespace, image, ports)
 - [x] Create Infrastructure nodes with `infra_type: "kubernetes"` and resource properties
@@ -460,7 +460,7 @@ The origin parses Kubernetes manifests (Deployments, Services, ConfigMaps, Ingre
 
 ### 4.7 Environment Variable Scanning (`pass_envscan`)
 
-The origin extracts all environment variable accesses across languages and creates a unified view.
+The baseline extracts all environment variable accesses across languages and creates a unified view.
 
 - [x] Detect `process.env.X`, `os.environ["X"]`, `os.Getenv("X")`, `System.getenv("X")`, `ENV["X"]` patterns
 - [x] Create EnvVar nodes or annotate accessing functions with `env_vars` property
@@ -468,7 +468,7 @@ The origin extracts all environment variable accesses across languages and creat
 
 ### 4.8 Git Diff Pass (`pass_gitdiff`)
 
-The origin enriches the graph with uncommitted change information at the node level, not just file level.
+The baseline enriches the graph with uncommitted change information at the node level, not just file level.
 
 - [x] Run `git diff --name-only HEAD` to get changed files (already done in `detect_changes`)
 - [x] Map changed files to affected graph nodes (functions/classes in those files)
@@ -477,7 +477,7 @@ The origin enriches the graph with uncommitted change information at the node le
 
 ### 4.9 Channel & Message Queue Extraction
 
-The origin's `extract_channels.c` detects Go channel operations, message queue publish/subscribe patterns, and event emitters.
+The baseline's `extract_channels.c` detects Go channel operations, message queue publish/subscribe patterns, and event emitters.
 
 - [x] Detect Go channel `make(chan T)`, `ch <- val`, `<-ch` patterns
 - [x] Detect message queue patterns: RabbitMQ publish/consume, Kafka producer/consumer, Redis pub/sub
@@ -486,7 +486,7 @@ The origin's `extract_channels.c` detects Go channel operations, message queue p
 
 ### 4.10 Type Assignment & Reference Extraction
 
-The origin has `extract_type_assigns.c` and `extract_type_refs.c` for building a richer type graph beyond what tree-sitter walkers provide.
+The baseline has `extract_type_assigns.c` and `extract_type_refs.c` for building a richer type graph beyond what tree-sitter walkers provide.
 
 - [x] Extract variable type assignments (`let x: Type = ...`, `x = Type()`)
 - [x] Extract type references in function signatures, generics, and type aliases
@@ -495,7 +495,7 @@ The origin has `extract_type_assigns.c` and `extract_type_refs.c` for building a
 
 ### 4.11 C/C++ Preprocessor Integration
 
-The origin has `preprocessor.cpp` (using `simplecpp`) for resolving `#include` chains, `#define` macros, and conditional compilation. The Rust port has basic `compile_commands.json` support but no preprocessor.
+The baseline has `preprocessor.cpp` (using `simplecpp`) for resolving `#include` chains, `#define` macros, and conditional compilation. The Rust port has basic `compile_commands.json` support but no preprocessor.
 
 - [x] Extract `#define` macros as Constant nodes and `#include "..."` as INCLUDES edges
 - [x] Integrate a full C preprocessor (e.g., `cc` crate or custom) for `#include` chain resolution
@@ -505,7 +505,7 @@ The origin has `preprocessor.cpp` (using `simplecpp`) for resolving `#include` c
 
 ### 4.12 Cross-Repository Linking (`pass_cross_repo`)
 
-The origin has `pass_cross_repo.c` for detecting cross-repository dependencies at the pipeline level (not just the MCP `link_project` tool).
+The baseline has `pass_cross_repo.c` for detecting cross-repository dependencies at the pipeline level (not just the MCP `link_project` tool).
 
 - [x] During indexing, detect references to external packages that match other indexed projects
 - [x] Auto-create cross-project CALLS/IMPORTS edges when both sides are indexed
@@ -513,7 +513,7 @@ The origin has `pass_cross_repo.c` for detecting cross-repository dependencies a
 
 ### 4.13 FastAPI Dependency Injection
 
-The origin has `pass_fastapi_depends` for extracting FastAPI's `Depends()` injection graph.
+The baseline has `pass_fastapi_depends` for extracting FastAPI's `Depends()` injection graph.
 
 - [x] Detect `Depends(function_name)` in FastAPI route handler parameters
 - [x] Create INJECTS edges from the dependency function to the route handler
@@ -522,7 +522,7 @@ The origin has `pass_fastapi_depends` for extracting FastAPI's `Depends()` injec
 
 ### 4.14 Decorator/Annotation Tag Pass
 
-The origin's `pass_decorator_tags` (in `pass_enrichment.c`) extracts and normalises decorator/annotation metadata across languages.
+The baseline's `pass_decorator_tags` (in `pass_enrichment.c`) extracts and normalises decorator/annotation metadata across languages.
 
 - [x] Extract Python `@decorator`, Java/Kotlin `@Annotation`, TypeScript decorators
 - [x] Store normalised decorator names in node properties (`decorators: ["Component", "Injectable"]`)
@@ -533,7 +533,7 @@ The origin's `pass_decorator_tags` (in `pass_enrichment.c`) extracts and normali
 
 ## Track 5 — Agent-First Features (Beyond Origin)
 
-Features that neither the origin nor any current tool provides, designed specifically to reduce agent tool calls, context window waste, and wrong-turn decisions. These are informed by real agent session patterns where the graph has the data but the agent can't access it efficiently. All items complete as of v0.4.3.
+Features that neither the baseline nor any current tool provides, designed specifically to reduce agent tool calls, context window waste, and wrong-turn decisions. These are informed by real agent session patterns where the graph has the data but the agent can't access it efficiently. All items complete as of v0.4.3.
 
 ### 5.1 Semantic Code Search (Embedding-Based)
 
@@ -752,7 +752,7 @@ The MCP server has no signal handling — a SIGTERM during indexing can leave th
 
 On large projects (50K+ files), the `FileCache`, `GraphBuffer`, and `TypeRegistry` can collectively consume several GB. No backpressure mechanism exists — the process just grows until OOM-killed.
 
-- [x] Add a configurable memory limit (default: 2GB, via `CBM_MAX_MEMORY` env var or config)
+- [x] Add a configurable memory limit (default: 2GB, via `CODRYN_MAX_MEMORY_MB` env var or config)
 - [x] Monitor RSS via `/proc/self/statm` (Linux) or `mach_task_info` (macOS) during pipeline runs
 - [x] When usage exceeds 80% of limit: flush `GraphBuffer` early, evict `FileCache` LRU entries
 - [x] Log memory high-water-mark at end of each index run
@@ -762,9 +762,9 @@ On large projects (50K+ files), the `FileCache`, `GraphBuffer`, and `TypeRegistr
 
 Current logging uses `tracing` with `env-filter` but defaults to unstructured text on stderr. No JSON output for log aggregation, and per-module filtering requires knowing internal crate names.
 
-- [x] Add `CBM_LOG_FORMAT=json` support via `tracing-subscriber`'s JSON layer
+- [x] Add `CODRYN_LOG_FORMAT=json` support via `tracing-subscriber`'s JSON layer
 - [x] Include structured fields: timestamp (ISO 8601), level, module path, span context, duration for timed operations
-- [x] Document per-module filter syntax in README (e.g., `CBM_LOG_LEVEL=codryn_pipeline=debug,codryn_store=warn`)
+- [x] Document per-module filter syntax in README (e.g., `CODRYN_LOG_LEVEL=codryn_pipeline=debug,codryn_store=warn`)
 - [x] Add request-scoped span for each MCP tool call (tool name, project, duration)
 - [x] Default to `info` level with human-readable format when no env vars are set
 
@@ -1013,9 +1013,9 @@ The `codryn install` command currently auto-installs globally without asking. It
 
 Instead of global steering that fires on every conversation regardless of context, the default should be workspace-level activation that only applies when working in an indexed project.
 
-- [x] Default install target: `.kiro/steering/` in the current workspace (not `~/.kiro/steering/`)
+- [x] Default install target: workspace steering in the current project (not global-only)
 - [x] Only install global steering when user explicitly opts in
-- [ ] `index_repository` auto-writes workspace steering on first index: when a project is indexed for the first time, write `codebase-memory.md` into the project's `.kiro/steering/` directory (the trigger for "this project has a knowledge graph" becoming true)
+- [ ] `index_repository` auto-writes workspace steering on first index: when a project is indexed for the first time, write the codryn steering file into the workspace (the trigger for "this project has a knowledge graph" becoming true)
 - [x] Add `codryn activate` command: installs steering + mcp.json in the current workspace
 - [x] Add `codryn deactivate` command: removes steering + mcp.json from the current workspace
 - [x] `codryn activate --global` / `codryn deactivate --global` for explicit global management
@@ -1051,8 +1051,8 @@ The current install modifies `mcp.json` for all detected IDEs without asking. Us
 - [x] Before modifying any `mcp.json`, show the proposed change and ask for confirmation
 - [x] Support `--skip-mcp-config` flag to install steering/skills without touching mcp.json
 - [x] Add `codryn mcp-config show` to display what would be added to mcp.json (for manual copy-paste)
-- [x] Add `codryn mcp-config add [--ide kiro|vscode|cursor]` for targeted IDE configuration
-- [x] Add `codryn mcp-config remove [--ide kiro|vscode|cursor]` to cleanly remove the server entry
+- [x] Add `codryn mcp-config add [--ide <target>]` for targeted agent configuration
+- [x] Add `codryn mcp-config remove [--ide <target>]` to cleanly remove the server entry
 - [x] Never overwrite existing mcp.json entries — merge or warn on conflicts
 
 ### 9.6 Uninstall / Clean Removal

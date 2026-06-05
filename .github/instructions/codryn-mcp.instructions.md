@@ -1,8 +1,8 @@
-# codryn mcp — Agent Steering Guide
+# codryn MCP — Agent Steering Guide
 
 ## When to Use Graph Tools
 
-Use the codryn mcp knowledge graph as your **primary** method for code discovery:
+Use the codryn knowledge graph as your **primary** method for code discovery:
 
 - **Symbol lookup**: `find_symbol` — fast ranked search by name or qualified name
 - **Full context**: `get_symbol_details` — callers, callees, imports, inheritance, source snippet in one call

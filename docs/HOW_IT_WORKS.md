@@ -13,7 +13,7 @@ flowchart TD
     CODE[Your Codebase] --> INDEX[codryn index<br/>tree-sitter AST parsing]
     INDEX --> DB[graph.db<br/>SQLite: nodes + edges]
     DB --> MCP[MCP Server<br/>46 tools on stdio]
-    MCP --> AGENT[Claude / Cursor / Kiro / Zed / ...]
+    MCP --> AGENT[Your AI coding agent]
 ```
 
 The graph persists between sessions. Your agent always has structural knowledge without re-reading files.
