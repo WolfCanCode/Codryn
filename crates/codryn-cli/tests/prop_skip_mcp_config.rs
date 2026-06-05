@@ -57,40 +57,52 @@ fn snapshot_dir_recursive(base: &Path, current: &Path, snapshot: &mut FsSnapshot
 fn mcp_config_content_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
         // Valid JSON with mcpServers containing our entry
-        Just(serde_json::to_string_pretty(&serde_json::json!({
-            "mcpServers": {
-                "codryn": {
-                    "command": "/usr/local/bin/codryn",
-                    "args": []
-                },
-                "other-server": {
-                    "command": "other"
+        Just(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "codryn": {
+                        "command": "/usr/local/bin/codryn",
+                        "args": []
+                    },
+                    "other-server": {
+                        "command": "other"
+                    }
                 }
-            }
-        })).unwrap()),
+            }))
+            .unwrap()
+        ),
         // Valid JSON with servers key (VS Code format)
-        Just(serde_json::to_string_pretty(&serde_json::json!({
-            "servers": {
-                "codryn": {
-                    "type": "stdio",
-                    "command": "/usr/local/bin/codryn"
+        Just(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "servers": {
+                    "codryn": {
+                        "type": "stdio",
+                        "command": "/usr/local/bin/codryn"
+                    }
                 }
-            }
-        })).unwrap()),
+            }))
+            .unwrap()
+        ),
         // Valid JSON without our entry (would trigger add)
-        Just(serde_json::to_string_pretty(&serde_json::json!({
-            "mcpServers": {
-                "some-other-mcp": {
-                    "command": "other-tool"
+        Just(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "some-other-mcp": {
+                        "command": "other-tool"
+                    }
                 }
-            }
-        })).unwrap()),
+            }))
+            .unwrap()
+        ),
         // Empty JSON object
         Just("{}".to_string()),
         // Minimal valid MCP config
-        Just(serde_json::to_string_pretty(&serde_json::json!({
-            "mcpServers": {}
-        })).unwrap()),
+        Just(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {}
+            }))
+            .unwrap()
+        ),
         // Random arbitrary content (simulate custom user config)
         "[a-zA-Z0-9 {}\":,\\[\\]\n]{10,100}".prop_map(|s| {
             // Ensure it's valid JSON by wrapping in a known structure
@@ -101,7 +113,8 @@ fn mcp_config_content_strategy() -> impl Strategy<Value = String> {
                         "env": { "CUSTOM_KEY": s }
                     }
                 }
-            })).unwrap()
+            }))
+            .unwrap()
         }),
     ]
 }
@@ -110,8 +123,6 @@ fn mcp_config_content_strategy() -> impl Strategy<Value = String> {
 fn config_file_count_strategy() -> impl Strategy<Value = usize> {
     1usize..=5
 }
-
-
 
 // ─── Property 14: Skip-MCP-Config Flag Prevents All Modifications ────────────
 
@@ -302,6 +313,9 @@ mod property14_skip_mcp_config {
         let snapshot_after = snapshot_dir(tmp.path());
 
         assert_eq!(snapshot_before, snapshot_after);
-        assert!(!config_path.exists(), "Non-existent file should remain non-existent");
+        assert!(
+            !config_path.exists(),
+            "Non-existent file should remain non-existent"
+        );
     }
 }

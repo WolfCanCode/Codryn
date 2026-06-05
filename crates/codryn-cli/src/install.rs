@@ -718,10 +718,7 @@ fn install_codex_mcp(binary_path: &str, config_path: &Path, dry_run: bool) -> Re
         }
     } else {
         // Append new section
-        let section = format!(
-            "\n[mcp_servers.codryn]\ncommand = \"{}\"\n",
-            binary_path
-        );
+        let section = format!("\n[mcp_servers.codryn]\ncommand = \"{}\"\n", binary_path);
         let content = if existing.is_empty() {
             section.trim_start().to_string()
         } else {
@@ -1055,10 +1052,18 @@ pub fn execute_install(config: &InstallConfig, binary_path: Option<&Path>) -> Re
 
         // Write MCP config for this IDE
         match ide {
-            Ide::Kiro => { let _ = install_kiro_mcp(&bin, mcp_path, false); }
-            Ide::VsCode => { let _ = install_vscode_mcp(&bin, mcp_path, false); }
-            Ide::Codex => { let _ = install_codex_mcp(&bin, mcp_path, false); }
-            _ => { let _ = install_editor_mcp(&bin, mcp_path, false); }
+            Ide::Kiro => {
+                let _ = install_kiro_mcp(&bin, mcp_path, false);
+            }
+            Ide::VsCode => {
+                let _ = install_vscode_mcp(&bin, mcp_path, false);
+            }
+            Ide::Codex => {
+                let _ = install_codex_mcp(&bin, mcp_path, false);
+            }
+            _ => {
+                let _ = install_editor_mcp(&bin, mcp_path, false);
+            }
         }
 
         // Write skill files for this IDE
@@ -1130,8 +1135,9 @@ pub fn execute_install(config: &InstallConfig, binary_path: Option<&Path>) -> Re
                 || config.scope == InstallScope::WorkspaceOnly
                 || config.scope == InstallScope::Both
             {
-                let workspace_path =
-                    std::env::current_dir().unwrap_or_default().join(".kiro/steering/codebase-memory.md");
+                let workspace_path = std::env::current_dir()
+                    .unwrap_or_default()
+                    .join(".kiro/steering/codebase-memory.md");
                 crate::steering::write_steering(&workspace_path, &config.intensity)?;
             }
         }
@@ -1217,10 +1223,7 @@ fn plan_operations(config: &InstallConfig, binary_path: Option<&Path>) -> Vec<In
         } else {
             ops.push(InstallOperation::Create {
                 path: mcp_path.clone(),
-                description: format!(
-                    "Create MCP config for {}",
-                    detected_ide.ide.display_name()
-                ),
+                description: format!("Create MCP config for {}", detected_ide.ide.display_name()),
             });
         }
     }
@@ -1297,7 +1300,8 @@ fn prompt_ide_selection(
     let options: Vec<&str> = detected.iter().map(|d| d.ide.display_name()).collect();
     let defaults: Vec<bool> = detected.iter().map(|_| true).collect();
 
-    let selected_indices = prompter.multi_select("Select IDEs to configure:", &options, &defaults)?;
+    let selected_indices =
+        prompter.multi_select("Select IDEs to configure:", &options, &defaults)?;
 
     Ok(selected_indices
         .into_iter()
@@ -1325,9 +1329,9 @@ fn prompt_steering_intensity(
     let options = &["lite", "full", "none"];
     // Default depends on scope: lite for global, full for workspace
     let default_idx = match scope {
-        InstallScope::Global => 0,       // lite
+        InstallScope::Global => 0,        // lite
         InstallScope::WorkspaceOnly => 1, // full
-        InstallScope::Both => 1,         // full (workspace bias)
+        InstallScope::Both => 1,          // full (workspace bias)
     };
     let idx = prompter.select("Steering intensity:", options, default_idx)?;
     Ok(match idx {
@@ -1341,16 +1345,16 @@ fn prompt_steering_intensity(
 #[cfg(test)]
 mod tests_interactive {
     use super::*;
-    use codryn_foundation::ide_detect::Ide;
     use crate::prompter::{MockPrompter, MockResponse, PrompterError};
+    use codryn_foundation::ide_detect::Ide;
 
     #[test]
     fn test_install_interactive_dry_run_no_mutations() {
         let prompter = MockPrompter::new(vec![
-            MockResponse::Select(0),          // scope: workspace-only
+            MockResponse::Select(0),           // scope: workspace-only
             MockResponse::MultiSelect(vec![]), // no IDEs (will be empty since detect_ides is real)
-            MockResponse::Select(0),          // steering: workspace-only
-            MockResponse::Select(1),          // intensity: full
+            MockResponse::Select(0),           // steering: workspace-only
+            MockResponse::Select(1),           // intensity: full
         ]);
 
         let result = install_interactive(&prompter, false, true, None);
@@ -1435,7 +1439,9 @@ mod tests_interactive {
         };
         let ops = plan_operations(&config, None);
         // Should have a Skip for steering and a Create for preferences
-        assert!(ops.iter().any(|op| matches!(op, InstallOperation::Skip { .. })));
+        assert!(ops
+            .iter()
+            .any(|op| matches!(op, InstallOperation::Skip { .. })));
         assert!(ops.iter().any(|op| matches!(op, InstallOperation::Create { description, .. } if description.contains("preferences"))));
     }
 
@@ -1454,7 +1460,9 @@ mod tests_interactive {
         };
         let ops = plan_operations(&config, Some(Path::new("/usr/local/bin/codryn")));
         // Should have a Create for the MCP config (since path doesn't exist)
-        assert!(ops.iter().any(|op| matches!(op, InstallOperation::Create { path, .. }
+        assert!(ops
+            .iter()
+            .any(|op| matches!(op, InstallOperation::Create { path, .. }
             if path.to_str().unwrap().contains("mcp.json"))));
     }
 
@@ -1510,8 +1518,7 @@ mod tests_interactive {
     #[test]
     fn test_prompt_intensity_full() {
         let prompter = MockPrompter::new(vec![MockResponse::Select(1)]);
-        let intensity =
-            prompt_steering_intensity(&prompter, &InstallScope::WorkspaceOnly).unwrap();
+        let intensity = prompt_steering_intensity(&prompter, &InstallScope::WorkspaceOnly).unwrap();
         assert_eq!(intensity, SteeringIntensity::Full);
     }
 
@@ -1574,10 +1581,10 @@ mod tests_interactive {
         // that the info message about no IDEs is shown when it's empty.
         // This test validates the flow structure by checking prompt ordering.
         let prompter = MockPrompter::new(vec![
-            MockResponse::Select(1),          // scope: global
+            MockResponse::Select(1),           // scope: global
             MockResponse::MultiSelect(vec![]), // IDE selection (may or may not be called)
-            MockResponse::Select(2),          // steering: no
-            MockResponse::Select(0),          // intensity: lite
+            MockResponse::Select(2),           // steering: no
+            MockResponse::Select(0),           // intensity: lite
         ]);
 
         // Note: This test exercises the flow; on CI/machines with IDEs installed,

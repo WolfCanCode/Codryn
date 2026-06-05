@@ -83,8 +83,8 @@ fn save_metadata(name: &str, metadata: &FixtureMetadata) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create cache directory: {}", parent.display()))?;
     }
-    let content = serde_json::to_string_pretty(metadata)
-        .context("Failed to serialize fixture metadata")?;
+    let content =
+        serde_json::to_string_pretty(metadata).context("Failed to serialize fixture metadata")?;
     fs::write(&path, content)
         .with_context(|| format!("Failed to write metadata file: {}", path.display()))?;
     Ok(())
@@ -257,30 +257,26 @@ mod tests {
         };
 
         let generator_called = Cell::new(false);
-        let (fixture, was_called) = test_load_or_generate_with_dir(
-            temp.path(),
-            &config,
-            |seed| {
-                generator_called.set(true);
-                GeneratedFixture {
-                    root: temp.path().join("test_fixture"),
-                    file_count: 100,
-                    node_count: 1000,
-                    edge_count: 3000,
-                    metadata: FixtureMetadata {
-                        schema_version_hash: compute_schema_hash("v1.0.0"),
-                        generated_at: chrono::Utc::now().to_rfc3339(),
-                        config: FixtureConfigSerialized {
-                            name: "test_fixture".to_string(),
-                            seed,
-                            file_count: 100,
-                            node_count: 1000,
-                            edge_count: 3000,
-                        },
+        let (fixture, was_called) = test_load_or_generate_with_dir(temp.path(), &config, |seed| {
+            generator_called.set(true);
+            GeneratedFixture {
+                root: temp.path().join("test_fixture"),
+                file_count: 100,
+                node_count: 1000,
+                edge_count: 3000,
+                metadata: FixtureMetadata {
+                    schema_version_hash: compute_schema_hash("v1.0.0"),
+                    generated_at: chrono::Utc::now().to_rfc3339(),
+                    config: FixtureConfigSerialized {
+                        name: "test_fixture".to_string(),
+                        seed,
+                        file_count: 100,
+                        node_count: 1000,
+                        edge_count: 3000,
                     },
-                }
-            },
-        );
+                },
+            }
+        });
 
         assert!(was_called);
         assert_eq!(fixture.file_count, 100);
@@ -298,10 +294,8 @@ mod tests {
         };
 
         // First call — generates and caches
-        let (_fixture, was_called) = test_load_or_generate_with_dir(
-            temp.path(),
-            &config,
-            |seed| GeneratedFixture {
+        let (_fixture, was_called) =
+            test_load_or_generate_with_dir(temp.path(), &config, |seed| GeneratedFixture {
                 root: temp.path().join("test_fixture"),
                 file_count: 100,
                 node_count: 1000,
@@ -317,18 +311,14 @@ mod tests {
                         edge_count: 3000,
                     },
                 },
-            },
-        );
+            });
         assert!(was_called);
 
         // Second call — should use cache
-        let (_fixture, was_called) = test_load_or_generate_with_dir(
-            temp.path(),
-            &config,
-            |_seed| {
+        let (_fixture, was_called) =
+            test_load_or_generate_with_dir(temp.path(), &config, |_seed| {
                 panic!("Generator should not be called on cache hit");
-            },
-        );
+            });
         assert!(!was_called);
     }
 
@@ -342,10 +332,8 @@ mod tests {
         };
 
         // First call with v1 — generates and caches
-        let (_fixture, was_called) = test_load_or_generate_with_dir(
-            temp.path(),
-            &config_v1,
-            |seed| GeneratedFixture {
+        let (_fixture, was_called) =
+            test_load_or_generate_with_dir(temp.path(), &config_v1, |seed| GeneratedFixture {
                 root: temp.path().join("test_fixture"),
                 file_count: 100,
                 node_count: 1000,
@@ -361,8 +349,7 @@ mod tests {
                         edge_count: 3000,
                     },
                 },
-            },
-        );
+            });
         assert!(was_called);
 
         // Second call with v2 — should regenerate
@@ -372,10 +359,8 @@ mod tests {
             schema_version: "v2.0.0",
         };
 
-        let (fixture, was_called) = test_load_or_generate_with_dir(
-            temp.path(),
-            &config_v2,
-            |seed| GeneratedFixture {
+        let (fixture, was_called) =
+            test_load_or_generate_with_dir(temp.path(), &config_v2, |seed| GeneratedFixture {
                 root: temp.path().join("test_fixture"),
                 file_count: 200,
                 node_count: 2000,
@@ -391,8 +376,7 @@ mod tests {
                         edge_count: 6000,
                     },
                 },
-            },
-        );
+            });
         assert!(was_called);
         assert_eq!(fixture.file_count, 200);
         assert_eq!(fixture.node_count, 2000);
@@ -415,7 +399,10 @@ mod tests {
         let json = serde_json::to_string(&metadata).unwrap();
         let deserialized: FixtureMetadata = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(metadata.schema_version_hash, deserialized.schema_version_hash);
+        assert_eq!(
+            metadata.schema_version_hash,
+            deserialized.schema_version_hash
+        );
         assert_eq!(metadata.generated_at, deserialized.generated_at);
         assert_eq!(metadata.config.name, deserialized.config.name);
         assert_eq!(metadata.config.seed, deserialized.config.seed);

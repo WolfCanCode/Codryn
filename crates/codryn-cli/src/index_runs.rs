@@ -14,7 +14,8 @@ pub fn run_index_runs(store_dir: &Path, project: &str, limit: usize, json: bool)
         );
     }
 
-    let store = codryn_store::Store::open(&db_path).context("failed to open store for index-runs")?;
+    let store =
+        codryn_store::Store::open(&db_path).context("failed to open store for index-runs")?;
 
     let runs = store
         .list_index_runs(project, limit)

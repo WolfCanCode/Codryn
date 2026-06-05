@@ -232,7 +232,8 @@ mod tests {
     fn parse_rust_and_compute(source: &str) -> ComplexityResult {
         // Use codryn-treesitter to extract symbols, then compute complexity from body text
         // of the first function found. Falls back to computing from the whole source.
-        if let Some(symbols) = codryn_treesitter::extract_symbols(codryn_discover::Language::Rust, source)
+        if let Some(symbols) =
+            codryn_treesitter::extract_symbols(codryn_discover::Language::Rust, source)
         {
             if let Some(sym) = symbols
                 .iter()

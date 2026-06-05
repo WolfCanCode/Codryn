@@ -14,7 +14,8 @@ pub fn run_snapshots(store_dir: &Path, project: &str, limit: usize, json: bool) 
         );
     }
 
-    let store = codryn_store::Store::open(&db_path).context("failed to open store for snapshots")?;
+    let store =
+        codryn_store::Store::open(&db_path).context("failed to open store for snapshots")?;
 
     let snapshots = store
         .list_snapshots(project, limit)

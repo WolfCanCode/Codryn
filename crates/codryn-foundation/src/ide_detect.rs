@@ -305,11 +305,7 @@ fn zed_config_dir(home: &Path) -> PathBuf {
 
 /// Check if an IDE is present via config directory, app bundle, or CLI binary.
 /// Returns the detection method if found, or None.
-fn detect_presence(
-    config_dir: &Path,
-    app_name: &str,
-    cli_names: &[&str],
-) -> Option<&'static str> {
+fn detect_presence(config_dir: &Path, app_name: &str, cli_names: &[&str]) -> Option<&'static str> {
     if config_dir.exists() {
         return Some("directory");
     }
@@ -473,10 +469,7 @@ mod tests {
         assert_eq!(detected.len(), 1);
         assert_eq!(detected[0].ide, Ide::Codex);
         assert_eq!(detected[0].config_dir, home.join(".codex"));
-        assert_eq!(
-            detected[0].mcp_config_path,
-            home.join(".codex/config.toml")
-        );
+        assert_eq!(detected[0].mcp_config_path, home.join(".codex/config.toml"));
     }
 
     #[test]
@@ -555,10 +548,7 @@ mod proptests {
                 Ide::ClaudeDesktop,
                 vec!["Library/Application Support/Claude"],
             ));
-            configs.push((
-                Ide::VsCode,
-                vec!["Library/Application Support/Code/User"],
-            ));
+            configs.push((Ide::VsCode, vec!["Library/Application Support/Code/User"]));
             configs.push((Ide::Zed, vec!["Library/Application Support/Zed"]));
         } else if cfg!(target_os = "linux") {
             configs.push((Ide::ClaudeDesktop, vec![".config/claude"]));

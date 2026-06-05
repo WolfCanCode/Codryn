@@ -14,7 +14,8 @@ pub fn run_validate(store_dir: &Path, project: &str, fix_safe: bool, json: bool)
         );
     }
 
-    let store = codryn_store::Store::open(&db_path).context("failed to open store for validation")?;
+    let store =
+        codryn_store::Store::open(&db_path).context("failed to open store for validation")?;
 
     let report = store
         .validate_graph(project)
@@ -59,7 +60,11 @@ fn print_json(report: &codryn_store::ValidationReport, fixes_applied: Option<usi
 
 // ── Human-readable output ─────────────────────────────────────────────────────
 
-fn print_human(report: &codryn_store::ValidationReport, project: &str, fixes_applied: Option<usize>) {
+fn print_human(
+    report: &codryn_store::ValidationReport,
+    project: &str,
+    fixes_applied: Option<usize>,
+) {
     if report.total_issues == 0 {
         println!("✓ Graph is valid (project: {project})");
     } else {

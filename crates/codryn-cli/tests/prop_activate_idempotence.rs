@@ -22,10 +22,7 @@ fn workspace_name_strategy() -> impl Strategy<Value = String> {
 /// Generate a random steering intensity (Lite or Full — the two valid options
 /// for activate; None doesn't make sense for activation).
 fn intensity_strategy() -> impl Strategy<Value = SteeringIntensity> {
-    prop_oneof![
-        Just(SteeringIntensity::Lite),
-        Just(SteeringIntensity::Full),
-    ]
+    prop_oneof![Just(SteeringIntensity::Lite), Just(SteeringIntensity::Full),]
 }
 
 // ─── Property 8: Activate Idempotence ────────────────────────────────────────

@@ -193,10 +193,10 @@ mod property4_dry_run_no_mutations {
         };
 
         let prompter = MockPrompter::new(vec![
-            MockResponse::Select(0),          // scope: workspace-only
+            MockResponse::Select(0),           // scope: workspace-only
             MockResponse::MultiSelect(vec![]), // no IDE selection
-            MockResponse::Select(0),          // steering: workspace-only
-            MockResponse::Select(1),          // intensity: full
+            MockResponse::Select(0),           // steering: workspace-only
+            MockResponse::Select(1),           // intensity: full
         ]);
 
         let _ = install_interactive(&prompter, false, true, None);

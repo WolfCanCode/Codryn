@@ -130,30 +130,32 @@ impl<'a> McpConfigManager<'a> {
             };
 
             if diff.is_new_file {
-                self.prompter.info(&format!(
-                    "File does not exist: {}",
-                    diff.path.display()
-                ));
+                self.prompter
+                    .info(&format!("File does not exist: {}", diff.path.display()));
                 self.prompter.info("Proposed content:");
                 self.prompter.info(&diff.after);
             } else {
-                self.prompter
-                    .show_diff(&diff.path.display().to_string(), &diff.before, &diff.after);
+                self.prompter.show_diff(
+                    &diff.path.display().to_string(),
+                    &diff.before,
+                    &diff.after,
+                );
             }
 
-            let confirmed = self.prompter.confirm(
-                &format!("Apply changes to {}?", diff.path.display()),
-                true,
-            )?;
+            let confirmed = self
+                .prompter
+                .confirm(&format!("Apply changes to {}?", diff.path.display()), true)?;
 
             if confirmed {
                 if let Some(parent) = diff.path.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
                 std::fs::write(&diff.path, &diff.after)?;
-                self.prompter.info(&format!("Updated: {}", diff.path.display()));
+                self.prompter
+                    .info(&format!("Updated: {}", diff.path.display()));
             } else {
-                self.prompter.info(&format!("Skipped: {}", diff.path.display()));
+                self.prompter
+                    .info(&format!("Skipped: {}", diff.path.display()));
             }
         }
 
@@ -178,11 +180,8 @@ impl<'a> McpConfigManager<'a> {
             let content = match std::fs::read_to_string(target) {
                 Ok(c) => c,
                 Err(e) => {
-                    self.prompter.info(&format!(
-                        "Error: cannot read {}: {}",
-                        target.display(),
-                        e
-                    ));
+                    self.prompter
+                        .info(&format!("Error: cannot read {}: {}", target.display(), e));
                     continue;
                 }
             };
@@ -208,8 +207,7 @@ impl<'a> McpConfigManager<'a> {
                 continue;
             }
 
-            let after = serde_json::to_string_pretty(&config)
-                .unwrap_or_else(|_| "{}".to_string());
+            let after = serde_json::to_string_pretty(&config).unwrap_or_else(|_| "{}".to_string());
 
             self.prompter
                 .show_diff(&target.display().to_string(), &content, &after);
@@ -221,9 +219,11 @@ impl<'a> McpConfigManager<'a> {
 
             if confirmed {
                 std::fs::write(target, &after)?;
-                self.prompter.info(&format!("Removed entry from: {}", target.display()));
+                self.prompter
+                    .info(&format!("Removed entry from: {}", target.display()));
             } else {
-                self.prompter.info(&format!("Skipped: {}", target.display()));
+                self.prompter
+                    .info(&format!("Skipped: {}", target.display()));
             }
         }
 
@@ -714,7 +714,10 @@ mod tests {
         let manager = McpConfigManager::new(&prompter);
 
         manager
-            .add(Path::new("/usr/local/bin/codryn"), &[path1.clone(), path2.clone()])
+            .add(
+                Path::new("/usr/local/bin/codryn"),
+                &[path1.clone(), path2.clone()],
+            )
             .unwrap();
 
         assert!(path1.exists());

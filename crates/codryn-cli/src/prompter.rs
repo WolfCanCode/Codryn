@@ -50,7 +50,8 @@ pub trait Prompter {
     /// Present a multi-select and return selected indices.
     ///
     /// `defaults` indicates which options are pre-selected (must be same length as `options`).
-    fn multi_select(&self, prompt: &str, options: &[&str], defaults: &[bool]) -> Result<Vec<usize>>;
+    fn multi_select(&self, prompt: &str, options: &[&str], defaults: &[bool])
+        -> Result<Vec<usize>>;
 
     /// Ask for yes/no confirmation.
     ///
@@ -83,7 +84,7 @@ fn dialoguer_error_to_prompter(err: dialoguer::Error) -> PrompterError {
 
 impl Prompter for StdinPrompter {
     fn select(&self, prompt: &str, options: &[&str], default: usize) -> Result<usize> {
-        use dialoguer::{Select, theme::ColorfulTheme};
+        use dialoguer::{theme::ColorfulTheme, Select};
 
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt(prompt)
@@ -98,8 +99,13 @@ impl Prompter for StdinPrompter {
         }
     }
 
-    fn multi_select(&self, prompt: &str, options: &[&str], defaults: &[bool]) -> Result<Vec<usize>> {
-        use dialoguer::{MultiSelect, theme::ColorfulTheme};
+    fn multi_select(
+        &self,
+        prompt: &str,
+        options: &[&str],
+        defaults: &[bool],
+    ) -> Result<Vec<usize>> {
+        use dialoguer::{theme::ColorfulTheme, MultiSelect};
 
         let selection = MultiSelect::with_theme(&ColorfulTheme::default())
             .with_prompt(prompt)
@@ -115,7 +121,7 @@ impl Prompter for StdinPrompter {
     }
 
     fn confirm(&self, prompt: &str, default: bool) -> Result<bool> {
-        use dialoguer::{Confirm, theme::ColorfulTheme};
+        use dialoguer::{theme::ColorfulTheme, Confirm};
 
         let result = Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt(prompt)
@@ -242,14 +248,16 @@ impl Prompter for MockPrompter {
         let response = self.next_response()?;
         match response {
             MockResponse::Select(idx) => Ok(idx),
-            _ => anyhow::bail!(
-                "MockPrompter: expected Select response, got {:?}",
-                response
-            ),
+            _ => anyhow::bail!("MockPrompter: expected Select response, got {:?}", response),
         }
     }
 
-    fn multi_select(&self, prompt: &str, options: &[&str], defaults: &[bool]) -> Result<Vec<usize>> {
+    fn multi_select(
+        &self,
+        prompt: &str,
+        options: &[&str],
+        defaults: &[bool],
+    ) -> Result<Vec<usize>> {
         self.call_history
             .borrow_mut()
             .push(PromptCall::MultiSelect {

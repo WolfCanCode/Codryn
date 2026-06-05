@@ -477,7 +477,8 @@ fn extract_method_parallel(
                                         target_qn: dto_qn,
                                         edge_type: "ACCEPTS_DTO".to_owned(),
                                         properties_json: None,
-                                        edge_source: codryn_graph_buffer::EdgeSource::DedicatedAdapter,
+                                        edge_source:
+                                            codryn_graph_buffer::EdgeSource::DedicatedAdapter,
                                     });
                                 }
                             }

@@ -65,15 +65,11 @@ pub fn write_steering(path: &Path, intensity: &SteeringIntensity) -> Result<()> 
             };
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).with_context(|| {
-                    format!(
-                        "Failed to create parent directories for {}",
-                        path.display()
-                    )
+                    format!("Failed to create parent directories for {}", path.display())
                 })?;
             }
-            std::fs::write(path, content).with_context(|| {
-                format!("Failed to write steering file at {}", path.display())
-            })?;
+            std::fs::write(path, content)
+                .with_context(|| format!("Failed to write steering file at {}", path.display()))?;
             Ok(())
         }
     }

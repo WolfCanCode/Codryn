@@ -133,7 +133,10 @@ mod tests {
     #[test]
     fn test_resolve_filter_env_overrides_config() {
         let _lock = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("CODRYN_LOG_LEVEL", "codryn_pipeline=debug,codryn_store=warn");
+        std::env::set_var(
+            "CODRYN_LOG_LEVEL",
+            "codryn_pipeline=debug,codryn_store=warn",
+        );
         let config = AppConfig {
             log_level: Some("info".to_string()),
             ..Default::default()

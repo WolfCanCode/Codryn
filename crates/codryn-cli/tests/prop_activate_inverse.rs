@@ -20,10 +20,7 @@ fn workspace_name_strategy() -> impl Strategy<Value = String> {
 
 /// Generate a random steering intensity (Lite or Full — the valid activation modes).
 fn activation_intensity_strategy() -> impl Strategy<Value = SteeringIntensity> {
-    prop_oneof![
-        Just(SteeringIntensity::Lite),
-        Just(SteeringIntensity::Full),
-    ]
+    prop_oneof![Just(SteeringIntensity::Lite), Just(SteeringIntensity::Full),]
 }
 
 // ─── Property 6: Activate/Deactivate Inverse Pair ────────────────────────────

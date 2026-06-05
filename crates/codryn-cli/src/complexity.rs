@@ -23,8 +23,8 @@ pub fn run_complexity(
         );
     }
 
-    let store =
-        codryn_store::Store::open(&db_path).context("failed to open store for complexity report")?;
+    let store = codryn_store::Store::open(&db_path)
+        .context("failed to open store for complexity report")?;
 
     let limit = top.unwrap_or(20) as i64;
     let min_cyc = min_cyclomatic.unwrap_or(0) as i64;

@@ -4,8 +4,8 @@
 //! validate their age, clean up partial phase artifacts, and determine
 //! whether a pipeline run should resume from a previous checkpoint.
 
-use codryn_store::Store;
 use chrono::{DateTime, Utc};
+use codryn_store::Store;
 
 use crate::{phases, ResumeInfo};
 
@@ -282,8 +282,8 @@ fn is_timestamp_within_age(started_at: &str, max_age_days: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codryn_store::{IndexCheckpoint, Store};
     use chrono::{Duration, Utc};
+    use codryn_store::{IndexCheckpoint, Store};
 
     fn test_store() -> Store {
         Store::open_in_memory().unwrap()

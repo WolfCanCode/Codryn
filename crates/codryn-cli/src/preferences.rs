@@ -61,10 +61,20 @@ impl InstallPreferences {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let contents = std::fs::read_to_string(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read preferences file at {}: {}", path.display(), e))?;
-        let prefs: Self = toml::from_str(&contents)
-            .map_err(|e| anyhow::anyhow!("Failed to parse preferences file at {}: {}", path.display(), e))?;
+        let contents = std::fs::read_to_string(&path).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to read preferences file at {}: {}",
+                path.display(),
+                e
+            )
+        })?;
+        let prefs: Self = toml::from_str(&contents).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse preferences file at {}: {}",
+                path.display(),
+                e
+            )
+        })?;
         Ok(prefs)
     }
 
@@ -116,13 +126,18 @@ impl InstallPreferences {
     /// - Both: `Full` (uses workspace intensity)
     pub fn effective_intensity(&self, scope: &InstallScope) -> SteeringIntensity {
         match scope {
-            InstallScope::Global => self.global_intensity.clone().unwrap_or(SteeringIntensity::Lite),
-            InstallScope::WorkspaceOnly => {
-                self.workspace_intensity.clone().unwrap_or(SteeringIntensity::Full)
-            }
-            InstallScope::Both => {
-                self.workspace_intensity.clone().unwrap_or(SteeringIntensity::Full)
-            }
+            InstallScope::Global => self
+                .global_intensity
+                .clone()
+                .unwrap_or(SteeringIntensity::Lite),
+            InstallScope::WorkspaceOnly => self
+                .workspace_intensity
+                .clone()
+                .unwrap_or(SteeringIntensity::Full),
+            InstallScope::Both => self
+                .workspace_intensity
+                .clone()
+                .unwrap_or(SteeringIntensity::Full),
         }
     }
 }
@@ -310,7 +325,10 @@ scope = "global"
     #[test]
     fn test_save_and_load_roundtrip_on_disk() {
         let tmp_dir = TempDir::new().unwrap();
-        let prefs_path = tmp_dir.path().join("codryn").join("install-preferences.toml");
+        let prefs_path = tmp_dir
+            .path()
+            .join("codryn")
+            .join("install-preferences.toml");
 
         let prefs = InstallPreferences {
             scope: Some(InstallScope::Both),

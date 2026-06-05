@@ -7,7 +7,9 @@
 //! the workspace (global steering, MCP configs, preferences file, data directories)
 //! SHALL remain unchanged.
 
-use codryn_cli::uninstall::{execute_uninstall, ArtifactCategory, InstalledArtifact, RemovalResult};
+use codryn_cli::uninstall::{
+    execute_uninstall, ArtifactCategory, InstalledArtifact, RemovalResult,
+};
 use proptest::prelude::*;
 use std::fs;
 use tempfile::TempDir;

@@ -342,14 +342,20 @@ mod tests {
         };
 
         let config = AppConfig::from_raw(raw);
-        assert_eq!(config.store_path, Some(PathBuf::from("~/.local/share/codryn")));
+        assert_eq!(
+            config.store_path,
+            Some(PathBuf::from("~/.local/share/codryn"))
+        );
         assert_eq!(config.log_level.as_deref(), Some("debug"));
         assert_eq!(config.log_format.as_deref(), Some("json"));
         assert_eq!(config.pool_size, Some(8));
         assert_eq!(config.staleness_threshold_secs, Some(7200));
         assert_eq!(config.max_memory_mb, Some(4096));
         assert_eq!(config.ui_port, Some(8080));
-        assert_eq!(config.plugin_dir, Some(PathBuf::from("/opt/codryn/plugins")));
+        assert_eq!(
+            config.plugin_dir,
+            Some(PathBuf::from("/opt/codryn/plugins"))
+        );
         assert_eq!(config.snapshot_retention, Some(5));
 
         let rl = config.rate_limit.unwrap();
@@ -438,7 +444,10 @@ port = 3000
         let raw: RawConfig = toml::from_str(toml_content).unwrap();
         let config = AppConfig::from_raw(raw);
 
-        assert_eq!(config.store_path, Some(PathBuf::from("~/.local/share/codryn")));
+        assert_eq!(
+            config.store_path,
+            Some(PathBuf::from("~/.local/share/codryn"))
+        );
         assert_eq!(config.log_level.as_deref(), Some("info"));
         assert_eq!(config.log_format.as_deref(), Some("text"));
         assert_eq!(config.pool_size, Some(4));

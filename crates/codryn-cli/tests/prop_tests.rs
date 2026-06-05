@@ -37,19 +37,32 @@ fn path_strategy() -> impl Strategy<Value = PathBuf> {
 
 /// Generate a valid ISO 8601-like timestamp string
 fn timestamp_strategy() -> impl Strategy<Value = String> {
-    (2020u32..2030, 1u32..13, 1u32..29, 0u32..24, 0u32..60, 0u32..60).prop_map(
-        |(y, mo, d, h, mi, s)| format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, mi, s),
+    (
+        2020u32..2030,
+        1u32..13,
+        1u32..29,
+        0u32..24,
+        0u32..60,
+        0u32..60,
     )
+        .prop_map(|(y, mo, d, h, mi, s)| {
+            format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, mi, s)
+        })
 }
 
 fn workspace_activation_strategy() -> impl Strategy<Value = WorkspaceActivation> {
-    (path_strategy(), timestamp_strategy(), steering_intensity_strategy()).prop_map(
-        |(path, activated_at, steering_intensity)| WorkspaceActivation {
-            path,
-            activated_at,
-            steering_intensity,
-        },
+    (
+        path_strategy(),
+        timestamp_strategy(),
+        steering_intensity_strategy(),
     )
+        .prop_map(
+            |(path, activated_at, steering_intensity)| WorkspaceActivation {
+                path,
+                activated_at,
+                steering_intensity,
+            },
+        )
 }
 
 fn ide_name_strategy() -> impl Strategy<Value = String> {
@@ -75,7 +88,14 @@ fn install_preferences_strategy() -> impl Strategy<Value = InstallPreferences> {
         )),
     )
         .prop_map(
-            |(scope, steering, global_intensity, workspace_intensity, selected_ides, activated_workspaces)| {
+            |(
+                scope,
+                steering,
+                global_intensity,
+                workspace_intensity,
+                selected_ides,
+                activated_workspaces,
+            )| {
                 InstallPreferences {
                     scope,
                     steering,

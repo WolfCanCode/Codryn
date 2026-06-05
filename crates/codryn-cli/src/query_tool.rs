@@ -135,9 +135,7 @@ pub fn run_tool(
 
 /// Extract a named argument from the key-value pairs.
 fn get_arg(args: &[(String, String)], key: &str) -> Option<String> {
-    args.iter()
-        .find(|(k, _)| k == key)
-        .map(|(_, v)| v.clone())
+    args.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
 
 /// Dispatch to the appropriate service function based on tool name.
@@ -223,23 +221,23 @@ fn dispatch_tool(
             }))
         }
         "health_check" => Ok(json!({ "status": "ok", "mode": "cli" })),
-        "clear_cache" => Ok(json!({ "status": "ok", "message": "cache cleared (no-op in CLI mode)" })),
+        "clear_cache" => {
+            Ok(json!({ "status": "ok", "message": "cache cleared (no-op in CLI mode)" }))
+        }
         // TODO: Implement remaining tool dispatches.
         // The full dispatch requires deeper integration with codryn-services
         // (architecture, flow analysis, navigation, pattern detection, etc.).
         // Each tool needs specific argument parsing and service function calls.
         // For now, tools not yet wired return a helpful message.
-        _ => {
-            Ok(json!({
-                "status": "not_yet_implemented",
-                "tool": tool_name,
-                "message": format!(
-                    "Tool '{}' is recognized but CLI dispatch is not yet implemented. \
-                     Use the MCP server for full functionality.",
-                    tool_name
-                ),
-            }))
-        }
+        _ => Ok(json!({
+            "status": "not_yet_implemented",
+            "tool": tool_name,
+            "message": format!(
+                "Tool '{}' is recognized but CLI dispatch is not yet implemented. \
+                 Use the MCP server for full functionality.",
+                tool_name
+            ),
+        })),
     }
 }
 

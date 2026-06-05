@@ -6,7 +6,9 @@
 //! index data directory SHALL remain present on disk after completion, while all
 //! other artifacts (steering, skills, MCP config entries) are removed.
 
-use codryn_cli::uninstall::{execute_uninstall, ArtifactCategory, InstalledArtifact, RemovalResult};
+use codryn_cli::uninstall::{
+    execute_uninstall, ArtifactCategory, InstalledArtifact, RemovalResult,
+};
 use proptest::prelude::*;
 use std::fs;
 use std::path::PathBuf;
@@ -23,8 +25,6 @@ fn artifact_filename_strategy() -> impl Strategy<Value = String> {
 fn data_dirname_strategy() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9_-]{2,10}"
 }
-
-
 
 // ─── Property 17: Keep-Data Preserves Database ───────────────────────────────
 

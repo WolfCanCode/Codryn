@@ -59,12 +59,14 @@ fn workspace_specs_strategy() -> impl Strategy<Value = Vec<WorkspaceFileSpec>> {
                     .zip(intensities)
                     .zip(steerings)
                     .zip(skills)
-                    .map(|(((name, intensity), has_steering), has_skill)| WorkspaceFileSpec {
-                        name,
-                        intensity,
-                        has_steering,
-                        has_skill,
-                    })
+                    .map(
+                        |(((name, intensity), has_steering), has_skill)| WorkspaceFileSpec {
+                            name,
+                            intensity,
+                            has_steering,
+                            has_skill,
+                        },
+                    )
                     .collect()
             })
     })
@@ -77,10 +79,7 @@ const STEERING_FILENAME: &str = "codebase-memory.md";
 
 /// Create workspace directories and files on disk according to the spec.
 /// Returns the workspace paths and a record of which files were created.
-fn setup_workspaces(
-    tmp: &TempDir,
-    specs: &[WorkspaceFileSpec],
-) -> Vec<(PathBuf, bool, bool)> {
+fn setup_workspaces(tmp: &TempDir, specs: &[WorkspaceFileSpec]) -> Vec<(PathBuf, bool, bool)> {
     let mut results = Vec::new();
 
     for spec in specs {

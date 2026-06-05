@@ -129,7 +129,10 @@ pub fn pass_cross_repo(
 
 /// Build a namespace map from linked projects.
 /// For each linked project, derives namespace prefixes from its top-level nodes.
-fn build_namespace_map(store: &Store, links: &[codryn_store::ProjectLink]) -> Vec<ProjectNamespace> {
+fn build_namespace_map(
+    store: &Store,
+    links: &[codryn_store::ProjectLink],
+) -> Vec<ProjectNamespace> {
     let mut namespaces = Vec::new();
 
     for link in links {

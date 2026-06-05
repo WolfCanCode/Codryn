@@ -294,7 +294,9 @@ fn bench_java_extraction(c: &mut Criterion) {
                 // Extract symbols from all Java files using tree-sitter
                 let mut total_symbols = 0;
                 for (_path, source) in &sources {
-                    if let Some(symbols) = codryn_treesitter::extract_symbols(Language::Java, source) {
+                    if let Some(symbols) =
+                        codryn_treesitter::extract_symbols(Language::Java, source)
+                    {
                         total_symbols += symbols.len();
                     }
                 }

@@ -1,6 +1,6 @@
+use chrono::Utc;
 use codryn_pipeline::{IndexMode, Pipeline};
 use codryn_store::Store;
-use chrono::Utc;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

@@ -66,14 +66,15 @@ async fn main() -> Result<()> {
     if args.get(1).map(|s| s.as_str()) == Some("install") {
         let dry_run = args.iter().any(|a| a == "--dry-run");
         let non_interactive = args.iter().any(|a| a == "--non-interactive");
-        let mode_cli = args
-            .windows(2)
-            .any(|w| w[0] == "--mode" && w[1] == "cli");
+        let mode_cli = args.windows(2).any(|w| w[0] == "--mode" && w[1] == "cli");
 
         if mode_cli {
             // CLI-first mode: skip MCP config, install only CLI steering
             let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let steering_path = workspace.join(".kiro").join("steering").join("codebase-memory.md");
+            let steering_path = workspace
+                .join(".kiro")
+                .join("steering")
+                .join("codebase-memory.md");
             codryn_cli::steering::write_steering(
                 &steering_path,
                 &codryn_cli::preferences::SteeringIntensity::Lite,
@@ -162,7 +163,10 @@ async fn main() -> Result<()> {
     // activate subcommand
     if args.get(1).map(|s| s.as_str()) == Some("activate") {
         let global = args.iter().any(|a| a == "--global");
-        let intensity = if args.windows(2).any(|w| w[0] == "--intensity" && w[1] == "lite") {
+        let intensity = if args
+            .windows(2)
+            .any(|w| w[0] == "--intensity" && w[1] == "lite")
+        {
             codryn_cli::preferences::SteeringIntensity::Lite
         } else {
             // Default: full for workspace, lite for global
@@ -212,18 +216,33 @@ async fn main() -> Result<()> {
         match mode {
             Some("lite") => {
                 let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                let path = workspace.join(".kiro").join("steering").join("codebase-memory.md");
-                codryn_cli::steering::switch_mode(&path, &codryn_cli::preferences::SteeringIntensity::Lite)?;
+                let path = workspace
+                    .join(".kiro")
+                    .join("steering")
+                    .join("codebase-memory.md");
+                codryn_cli::steering::switch_mode(
+                    &path,
+                    &codryn_cli::preferences::SteeringIntensity::Lite,
+                )?;
                 println!("Steering mode switched to: lite");
             }
             Some("full") => {
                 let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                let path = workspace.join(".kiro").join("steering").join("codebase-memory.md");
-                codryn_cli::steering::switch_mode(&path, &codryn_cli::preferences::SteeringIntensity::Full)?;
+                let path = workspace
+                    .join(".kiro")
+                    .join("steering")
+                    .join("codebase-memory.md");
+                codryn_cli::steering::switch_mode(
+                    &path,
+                    &codryn_cli::preferences::SteeringIntensity::Full,
+                )?;
                 println!("Steering mode switched to: full");
             }
             Some(invalid) => {
-                eprintln!("Error: invalid mode '{}'. Valid options: lite, full", invalid);
+                eprintln!(
+                    "Error: invalid mode '{}'. Valid options: lite, full",
+                    invalid
+                );
                 std::process::exit(1);
             }
             None => {
@@ -248,24 +267,25 @@ async fn main() -> Result<()> {
         let manager = codryn_cli::mcp_config::McpConfigManager::new(&prompter);
 
         match subcommand {
-            Some("show") => {
-                match manager.show_all() {
-                    Ok(entries) => {
-                        if entries.is_empty() {
-                            println!("No codryn entries found in any MCP config files.");
-                        } else {
-                            for entry in &entries {
-                                println!("{}: {}", entry.ide_name, entry.config_path.display());
-                                println!("  {}", serde_json::to_string_pretty(&entry.entry).unwrap_or_default());
-                            }
+            Some("show") => match manager.show_all() {
+                Ok(entries) => {
+                    if entries.is_empty() {
+                        println!("No codryn entries found in any MCP config files.");
+                    } else {
+                        for entry in &entries {
+                            println!("{}: {}", entry.ide_name, entry.config_path.display());
+                            println!(
+                                "  {}",
+                                serde_json::to_string_pretty(&entry.entry).unwrap_or_default()
+                            );
                         }
                     }
-                    Err(e) => {
-                        eprintln!("Error: {e:#}");
-                        std::process::exit(1);
-                    }
                 }
-            }
+                Err(e) => {
+                    eprintln!("Error: {e:#}");
+                    std::process::exit(1);
+                }
+            },
             Some("add") => {
                 let binary = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("codryn"));
                 let targets: Vec<PathBuf> = args[3..]
@@ -304,7 +324,10 @@ async fn main() -> Result<()> {
                 }
             }
             Some(other) => {
-                eprintln!("Error: unknown mcp-config subcommand '{}'. Use: show, add, remove", other);
+                eprintln!(
+                    "Error: unknown mcp-config subcommand '{}'. Use: show, add, remove",
+                    other
+                );
                 std::process::exit(1);
             }
             None => {
@@ -331,7 +354,10 @@ async fn main() -> Result<()> {
 
         // Display the list
         println!("The following artifacts will be removed:\n");
-        println!("{}", codryn_cli::uninstall::format_artifact_list(&artifacts));
+        println!(
+            "{}",
+            codryn_cli::uninstall::format_artifact_list(&artifacts)
+        );
 
         // Prompt for confirmation
         print!("\nProceed with uninstall? [y/N] ");
@@ -359,7 +385,10 @@ async fn main() -> Result<()> {
             workspace_path.as_deref(),
         );
 
-        println!("\n{}", codryn_cli::uninstall::format_results_summary(&results));
+        println!(
+            "\n{}",
+            codryn_cli::uninstall::format_results_summary(&results)
+        );
         return Ok(());
     }
 
@@ -552,7 +581,8 @@ async fn main() -> Result<()> {
             .map(|w| w[1].as_str());
         let json = args.iter().any(|a| a == "--json");
         let store_path = default_store_path();
-        match codryn_cli::doc_coverage::run_doc_coverage(&store_path, project, module_filter, json) {
+        match codryn_cli::doc_coverage::run_doc_coverage(&store_path, project, module_filter, json)
+        {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("Error: {e:#}");
@@ -882,7 +912,9 @@ fn reindex_all_projects() {
             continue;
         }
         print!("  {} …", p.name);
-        match codryn_pipeline::Pipeline::new(&root, &store_path, codryn_pipeline::IndexMode::Full).run() {
+        match codryn_pipeline::Pipeline::new(&root, &store_path, codryn_pipeline::IndexMode::Full)
+            .run()
+        {
             Ok(()) => println!(" ✓"),
             Err(e) => println!(" ✗ {}", e),
         }

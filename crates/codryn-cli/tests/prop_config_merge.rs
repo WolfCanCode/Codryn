@@ -22,7 +22,7 @@ fn json_string_value_strategy() -> impl Strategy<Value = String> {
 /// Generate a random JSON object with 1-5 keys (string values).
 fn json_object_strategy() -> impl Strategy<Value = Value> {
     proptest::collection::hash_map(
-        "[a-z][a-z0-9_]{0,10}",  // key
+        "[a-z][a-z0-9_]{0,10}",       // key
         json_string_value_strategy(), // value
         1..=5,
     )

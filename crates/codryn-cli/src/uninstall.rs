@@ -57,10 +57,7 @@ pub struct InstalledArtifact {
 #[derive(Debug, Clone)]
 pub enum RemovalResult {
     /// Successfully removed.
-    Success {
-        path: PathBuf,
-        description: String,
-    },
+    Success { path: PathBuf, description: String },
     /// Removal failed (e.g., permission denied, file locked).
     Failed {
         path: PathBuf,
@@ -127,10 +124,7 @@ fn discover_from_preferences(prefs: &InstallPreferences, artifacts: &mut Vec<Ins
                 artifacts.push(InstalledArtifact {
                     category: ArtifactCategory::SteeringFile,
                     path: steering_path,
-                    description: format!(
-                        "Workspace steering file ({})",
-                        workspace.path.display()
-                    ),
+                    description: format!("Workspace steering file ({})", workspace.path.display()),
                 });
             }
 
@@ -559,8 +553,10 @@ pub fn format_artifact_list(artifacts: &[InstalledArtifact]) -> String {
     ];
 
     for category in &categories {
-        let items: Vec<&InstalledArtifact> =
-            artifacts.iter().filter(|a| &a.category == category).collect();
+        let items: Vec<&InstalledArtifact> = artifacts
+            .iter()
+            .filter(|a| &a.category == category)
+            .collect();
 
         if items.is_empty() {
             continue;
@@ -568,7 +564,12 @@ pub fn format_artifact_list(artifacts: &[InstalledArtifact]) -> String {
 
         output.push_str(&format!("\n  {}:\n", category));
         for item in items {
-            output.push_str(&format!("    {}. {} ({})\n", number, item.description, item.path.display()));
+            output.push_str(&format!(
+                "    {}. {} ({})\n",
+                number,
+                item.description,
+                item.path.display()
+            ));
             number += 1;
         }
     }
@@ -719,7 +720,11 @@ mod tests {
         let workspace = TempDir::new().unwrap();
         let outside = TempDir::new().unwrap();
 
-        let ws_steering = workspace.path().join(".kiro").join("steering").join("codebase-memory.md");
+        let ws_steering = workspace
+            .path()
+            .join(".kiro")
+            .join("steering")
+            .join("codebase-memory.md");
         fs::create_dir_all(ws_steering.parent().unwrap()).unwrap();
         fs::write(&ws_steering, "workspace steering").unwrap();
 
@@ -784,7 +789,11 @@ mod tests {
     fn test_execute_uninstall_combined_keep_data_workspace_only() {
         let workspace = TempDir::new().unwrap();
 
-        let ws_steering = workspace.path().join(".kiro").join("steering").join("codebase-memory.md");
+        let ws_steering = workspace
+            .path()
+            .join(".kiro")
+            .join("steering")
+            .join("codebase-memory.md");
         fs::create_dir_all(ws_steering.parent().unwrap()).unwrap();
         fs::write(&ws_steering, "workspace steering").unwrap();
 
@@ -978,13 +987,11 @@ mod tests {
         fs::write(&steering_path, "steering content").unwrap();
 
         let prefs = InstallPreferences {
-            activated_workspaces: Some(vec![
-                crate::preferences::WorkspaceActivation {
-                    path: workspace.path().to_path_buf(),
-                    activated_at: "2024-01-01T00:00:00Z".to_string(),
-                    steering_intensity: crate::preferences::SteeringIntensity::Full,
-                },
-            ]),
+            activated_workspaces: Some(vec![crate::preferences::WorkspaceActivation {
+                path: workspace.path().to_path_buf(),
+                activated_at: "2024-01-01T00:00:00Z".to_string(),
+                steering_intensity: crate::preferences::SteeringIntensity::Full,
+            }]),
             ..Default::default()
         };
 

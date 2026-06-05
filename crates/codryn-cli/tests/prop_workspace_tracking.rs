@@ -15,10 +15,7 @@ use tempfile::TempDir;
 // ─── Strategies ──────────────────────────────────────────────────────────────
 
 fn steering_intensity_strategy() -> impl Strategy<Value = SteeringIntensity> {
-    prop_oneof![
-        Just(SteeringIntensity::Full),
-        Just(SteeringIntensity::Lite),
-    ]
+    prop_oneof![Just(SteeringIntensity::Full), Just(SteeringIntensity::Lite),]
 }
 
 /// Generate a workspace name that is valid as a directory name.

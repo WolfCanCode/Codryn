@@ -99,7 +99,8 @@ pub fn run_refs(
         );
     }
 
-    let store = codryn_store::Store::open(&db_path).context("failed to open store for refs lookup")?;
+    let store =
+        codryn_store::Store::open(&db_path).context("failed to open store for refs lookup")?;
 
     // Resolve the symbol by QN or name
     let node_id = resolve_symbol(&store, project, qn)?;

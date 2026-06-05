@@ -201,7 +201,9 @@ mod tests {
         // For the global test, we can't easily test ~/.kiro/steering/ without
         // modifying the user's home dir. Instead, test the steering_path logic.
         let path = steering_path(&workspace, true);
-        assert!(path.to_string_lossy().contains(".kiro/steering/codebase-memory.md"));
+        assert!(path
+            .to_string_lossy()
+            .contains(".kiro/steering/codebase-memory.md"));
         assert!(!path.starts_with(&workspace));
     }
 
@@ -213,7 +215,10 @@ mod tests {
         let path = steering_path(&workspace, false);
         assert_eq!(
             path,
-            workspace.join(".kiro").join("steering").join(STEERING_FILENAME)
+            workspace
+                .join(".kiro")
+                .join("steering")
+                .join(STEERING_FILENAME)
         );
     }
 
@@ -253,7 +258,9 @@ mod tests {
         let path = steering_path(workspace, true);
         // Global path should NOT be under the workspace
         assert!(!path.starts_with(workspace));
-        assert!(path.to_string_lossy().contains(".kiro/steering/codebase-memory.md"));
+        assert!(path
+            .to_string_lossy()
+            .contains(".kiro/steering/codebase-memory.md"));
     }
 
     #[test]

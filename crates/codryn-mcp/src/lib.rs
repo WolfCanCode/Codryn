@@ -2624,8 +2624,9 @@ impl CodrynServer {
             Ok(s) => {
                 self.trigger_auto_reindex(&s, &project);
                 let query_start = Instant::now();
-                let r =
-                    codryn_services::project_summary::ProjectSummaryService::get_summary(&s, &project);
+                let r = codryn_services::project_summary::ProjectSummaryService::get_summary(
+                    &s, &project,
+                );
                 self.record_query_duration(query_start);
                 match r {
                     Ok(summary) => serde_json::to_string(&summary).unwrap_or_default(),

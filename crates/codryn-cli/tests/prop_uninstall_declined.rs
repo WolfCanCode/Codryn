@@ -57,11 +57,10 @@ fn declined_response_strategy() -> impl Strategy<Value = String> {
         Just("yeah".to_string()),
         Just("yep".to_string()),
         // Random strings that are filtered to exclude confirming responses
-        "[a-zA-Z0-9 ]{1,10}"
-            .prop_filter("must not be y or yes when trimmed", |s| {
-                let trimmed = s.trim().to_lowercase();
-                trimmed != "y" && trimmed != "yes"
-            }),
+        "[a-zA-Z0-9 ]{1,10}".prop_filter("must not be y or yes when trimmed", |s| {
+            let trimmed = s.trim().to_lowercase();
+            trimmed != "y" && trimmed != "yes"
+        }),
     ]
 }
 
@@ -148,8 +147,7 @@ fn create_artifacts(
                         "codryn": { "command": "codryn" }
                     }
                 });
-                std::fs::write(&p, serde_json::to_string_pretty(&content).unwrap())
-                    .unwrap();
+                std::fs::write(&p, serde_json::to_string_pretty(&content).unwrap()).unwrap();
                 p
             }
         };

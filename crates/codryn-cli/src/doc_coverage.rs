@@ -19,8 +19,8 @@ pub fn run_doc_coverage(
         );
     }
 
-    let store =
-        codryn_store::Store::open(&db_path).context("failed to open store for doc coverage report")?;
+    let store = codryn_store::Store::open(&db_path)
+        .context("failed to open store for doc coverage report")?;
 
     let rows = store
         .query_doc_coverage(project, module_filter)
