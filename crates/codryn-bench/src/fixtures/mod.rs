@@ -173,7 +173,6 @@ mod tests {
     /// Override cache_dir for tests by using a custom function that writes to a tempdir.
     /// Since we can't easily override the module-level function, we test with a helper
     /// that mimics the logic but uses a controlled path.
-
     fn test_load_or_generate_with_dir(
         cache_root: &Path,
         config: &FixtureConfig,
