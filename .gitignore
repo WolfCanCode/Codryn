@@ -28,4 +28,4 @@ Thumbs.db
 # Env
 .env
 .env.local
-graph-ui/dist/
+graph-ui/dist/.claude/
